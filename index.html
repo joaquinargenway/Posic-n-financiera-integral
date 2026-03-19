@@ -178,7 +178,10 @@ input:focus,select:focus{outline:none;border-color:var(--blue);}
   <div class="gate-box">
     <h2>Reporte de Cajas</h2>
     <p>Ingresá la contraseña para acceder</p>
-    <input type="password" id="gate-pw" placeholder="••••••••" onkeydown="if(event.key==='Enter')checkGate()">
+    <div style="position:relative;max-width:220px;margin:0 auto 10px">
+      <input type="password" id="gate-pw" placeholder="••••••••" onkeydown="if(event.key==='Enter')checkGate()" style="padding-right:36px">
+      <button onclick="togglePw('gate-pw',this)" type="button" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;padding:0;line-height:1">👁</button>
+    </div>
     <button class="btn-primary" onclick="checkGate()" style="width:100%">Acceder</button>
     <p id="gate-err" style="color:var(--red);font-size:12px;margin-top:10px;display:none">Contraseña incorrecta.</p>
   </div>
@@ -215,10 +218,19 @@ input:focus,select:focus{outline:none;border-color:var(--blue);}
 
   <!-- ══ POSICIÓN ══ -->
   <div id="tab-posicion" class="sv">
-    <div class="filter-pills">
-      <button class="pill active-all" id="f-all"  onclick="setFiltro('all')">Todas las cajas</button>
-      <button class="pill"            id="f-a"    onclick="setFiltro('a')">Caja A</button>
-      <button class="pill"            id="f-pru"  onclick="setFiltro('pru')">Caja Pru</button>
+    <!-- Selector de fecha -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+      <div class="filter-pills" style="margin-bottom:0">
+        <button class="pill active-all" id="f-all"  onclick="setFiltro('all')">Todas las cajas</button>
+        <button class="pill"            id="f-a"    onclick="setFiltro('a')">Caja A</button>
+        <button class="pill"            id="f-pru"  onclick="setFiltro('pru')">Caja Pru</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
+        <label style="font-size:12px;color:var(--text2)">Fecha:</label>
+        <select id="pos-fecha-sel" onchange="setPosfecha(this.value)"
+                style="font-size:12px;padding:5px 10px;border:1px solid var(--border2);border-radius:20px;background:var(--bg);color:var(--text);cursor:pointer">
+        </select>
+      </div>
     </div>
     <div class="metrics-top" id="metrics-top"></div>
     <div class="metrics-var"  id="metrics-var"></div>
@@ -288,7 +300,10 @@ input:focus,select:focus{outline:none;border-color:var(--blue);}
   <div id="tab-editar" class="sh">
     <div id="pw-gate" class="card pw-wrap">
       <p>Esta sección es de acceso restringido.</p>
-      <input type="password" id="pw-input" placeholder="Contraseña" onkeydown="if(event.key==='Enter')checkPw()">
+      <div style="position:relative;display:inline-block;width:220px">
+        <input type="password" id="pw-input" placeholder="Contraseña" onkeydown="if(event.key==='Enter')checkPw()" style="padding-right:36px">
+        <button onclick="togglePw('pw-input',this)" type="button" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;padding:0;line-height:1">👁</button>
+      </div>
       <br><button class="btn-primary" onclick="checkPw()" style="margin-top:8px">Ingresar</button>
       <p id="pw-err" style="color:var(--red);font-size:12px;margin-top:8px;display:none">Contraseña incorrecta.</p>
     </div>
@@ -366,7 +381,7 @@ const PROJ_CLS    = { IC:'ic', TRU:'tru', AWY:'awy', CUZ:'cuz', DOMI:'domi' };
 const PRU_MAP    = { Tru:'TRU', Ico:'IC', Domi:'DOMI', Cuzco:'CUZ', Awy:'AWY' };
 const PRU_IGNORE = ['Banco E1','Banco E2'];
 
-let filtro = 'all', evoCaja = 'all', evoGrupo = 'total', evoProj = null, CH = {};
+let filtro = 'all', evoCaja = 'all', evoGrupo = 'total', evoProj = null, posFecha = null, CH = {};
 
 const DEFAULT_S = {
   lastUpdate:'2026-03-18', titulo:'Reporte Diario de Cajas', tcARS:1100, tcARS_pru:1100, tcEUR:1.08,
@@ -464,13 +479,22 @@ function toUSD(monto,moneda){
   return m;
 }
 function cajACalc(code){
-  const p=S.proyectos[code];if(!p||!p.cajA)return{liq:0,inv:0};
+  const {proyectos} = getPosData();
+  const p=proyectos[code];if(!p||!p.cajA)return{liq:0,inv:0};
   let liq=0,inv=0;
   p.cajA.forEach(c=>{const v=toUSD(c.monto,c.moneda);if(c.tipo==='inv')inv+=v;else liq+=v;});
   return{liq,inv};
 }
 function projTotals(code){
-  const p=S.proyectos[code];if(!p)return{cajA_liq:0,cajA_inv:0,cajA:0,cajPru_liq:0,cajPru_inv:0,cajPru:0,liq:0,inv:0,total:0};
+  const {proyectos, isSnapshot, row} = getPosData();
+  const p=proyectos[code];if(!p)return{cajA_liq:0,cajA_inv:0,cajA:0,cajPru_liq:0,cajPru_inv:0,cajPru:0,liq:0,inv:0,total:0};
+  // Si es snapshot con datos pre-calculados, usarlos directamente
+  if(isSnapshot && row && row[code+'_a_liq']!==undefined){
+    const cajA_liq=row[code+'_a_liq']||0, cajA_inv=row[code+'_a_inv']||0;
+    const cajPru_liq=row[code+'_pru_liq']||0, cajPru_inv=row[code+'_pru_inv']||0;
+    return{cajA_liq,cajA_inv,cajA:cajA_liq+cajA_inv,cajPru_liq,cajPru_inv,cajPru:cajPru_liq+cajPru_inv,
+           liq:cajA_liq+cajPru_liq,inv:cajA_inv+cajPru_inv,total:cajA_liq+cajA_inv+cajPru_liq+cajPru_inv};
+  }
   const a=cajACalc(code);
   const cajPru_liq=p.cajPru_liq||0,cajPru_inv=p.cajPru_inv||0;
   return{cajA_liq:a.liq,cajA_inv:a.inv,cajA:a.liq+a.inv,cajPru_liq,cajPru_inv,cajPru:cajPru_liq+cajPru_inv,
@@ -657,7 +681,19 @@ function recogerForm(){
   const today=S.lastUpdate;
   if(today){
     const row={fecha:today};
-    PROJS.forEach(c=>{const t=projTotals(c);row[c]=Math.round(t.total);});
+    PROJS.forEach(c=>{
+      const t=projTotals(c);
+      row[c]=Math.round(t.total);
+      // Guardar snapshot completo para poder reconstruir la posición de ese día
+      row[c+'_a']=Math.round(t.cajA);
+      row[c+'_pru']=Math.round(t.cajPru);
+      row[c+'_a_liq']=Math.round(t.cajA_liq);
+      row[c+'_a_inv']=Math.round(t.cajA_inv);
+      row[c+'_pru_liq']=Math.round(t.cajPru_liq);
+      row[c+'_pru_inv']=Math.round(t.cajPru_inv);
+    });
+    // Guardar snapshot de proyectos completo (cuentas de Caja A)
+    row._snapshot = JSON.parse(JSON.stringify(S.proyectos));
     row.total=PROJS.reduce((s,c)=>s+(row[c]||0),0);
     const idx=S.historico.findIndex(r=>r.fecha===today);
     if(idx>=0)S.historico[idx]=row;
@@ -678,6 +714,37 @@ function renderEditForm(){
 }
 
 // ── NAVEGACIÓN ────────────────────────────────────────────────────────────────
+function setPosFecha(v){
+  posFecha = v;
+  renderMetrics(); renderCards(); renderCharts(); renderTabla();
+}
+
+function getPosData(){
+  // Si hay fecha seleccionada y tiene snapshot, usamos ese
+  if(posFecha && posFecha !== '__latest__'){
+    const row = S.historico.find(r=>r.fecha===posFecha);
+    if(row && row._snapshot) return { proyectos: row._snapshot, isSnapshot: true, row };
+  }
+  return { proyectos: S.proyectos, isSnapshot: false, row: null };
+}
+
+function populateFechaSelector(){
+  const sel = document.getElementById('pos-fecha-sel');
+  if(!sel) return;
+  const h = (S.historico||[]).filter(r=>(r.total||0)>0);
+  // Determinar la fecha más reciente
+  const latest = h.length ? h[h.length-1].fecha : null;
+  if(!posFecha || !h.find(r=>r.fecha===posFecha)){
+    posFecha = '__latest__';
+  }
+  sel.innerHTML = `<option value="__latest__">Hoy (${latest ? fDate(latest) : '—'})</option>`
+    + [...h].reverse().map(r=>
+        `<option value="${r.fecha}" ${posFecha===r.fecha?'selected':''}>${fDate(r.fecha)}</option>`
+      ).join('');
+  if(posFecha==='__latest__') sel.value='__latest__';
+  else sel.value = posFecha;
+}
+
 function setFiltro(f){
   filtro=f;const m={all:'active-all',a:'active-a',pru:'active-pru'};
   ['all','a','pru'].forEach(x=>{const b=document.getElementById('f-'+x);b.className='pill';if(x===f)b.classList.add(m[x]);});
@@ -701,6 +768,7 @@ function showTab(name){
 function renderAll(){
   if(S.titulo){document.getElementById('titulo-display').textContent=S.titulo;document.title=S.titulo;}
   document.getElementById('fecha-header').textContent='Datos al '+fDate(S.lastUpdate);
+  populateFechaSelector();
   renderMetrics();renderCards();renderCharts();renderTabla();
 }
 function editarTitulo(){
@@ -711,6 +779,12 @@ function guardarTitulo(){
   const d=document.getElementById('titulo-display'),inp=document.getElementById('titulo-input');
   const v=inp.value.trim()||'Reporte Diario de Cajas';
   S.titulo=v;d.textContent=v;document.title=v;inp.style.display='none';d.style.display='inline-block';
+}
+function togglePw(id,btn){
+  const inp=document.getElementById(id);
+  const show=inp.type==='password';
+  inp.type=show?'text':'password';
+  btn.textContent=show?'🙈':'👁';
 }
 function checkGate(){
   const v=document.getElementById('gate-pw').value;
