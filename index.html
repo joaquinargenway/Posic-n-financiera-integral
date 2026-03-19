@@ -428,7 +428,11 @@ async function cargarNube(){
     const r=await fetch(BIN_URL+'/latest',{headers:{'X-Master-Key':API_KEY}});
     if(!r.ok)throw new Error();
     const d=await r.json();
-    if(d.record&&d.record.lastUpdate!==undefined)S=d.record;
+    if(d.record&&d.record.lastUpdate!==undefined){
+      S=d.record;
+      // Limpiar filas con total 0 que puedan haberse guardado por error
+      if(S.historico) S.historico = S.historico.filter(r=>(r.total||0)>0);
+    }
     setSyncBadge('ok');
   }catch(e){setSyncBadge('err');}
   document.getElementById('loader-overlay').style.display='none';
@@ -752,11 +756,16 @@ function renderEvoToggles(){
 }
 
 function evoValue(row,code){
-  if(evoCaja==='a')  return row[code+'_a']||row[code]||0;
-  if(evoCaja==='pru')return row[code+'_pru']||0;
-  return row[code]||0;
+  let v;
+  if(evoCaja==='a')  v=row[code+'_a']??row[code]??0;
+  else if(evoCaja==='pru') v=row[code+'_pru']??0;
+  else v=row[code]??0;
+  return v > 0 ? v : null;  // null = sin dato (no dibuja punto en el gráfico)
 }
-function evoTotal(row){ return PROJS.reduce((s,c)=>s+evoValue(row,c),0); }
+function evoTotal(row){
+  const t = PROJS.reduce((s,c)=>{const v=evoValue(row,c);return s+(v||0);},0);
+  return t > 0 ? t : null;
+}
 
 function renderEvolutivo(){
   const h=S.historico||[]; const labels=h.map(r=>fDate(r.fecha));
@@ -771,7 +780,7 @@ function renderEvolutivo(){
     ds=projs.map(c=>({label:PROJ_NAMES[c],data:h.map(r=>evoValue(r,c)),borderColor:PROJ_COLORS[c],backgroundColor:'transparent',fill:false,tension:.4,pointRadius:3,borderWidth:2}));
     ds.unshift({label:EVO_GRUPOS[evoGrupo].label+' Total',data:h.map(r=>projs.reduce((s,c)=>s+evoValue(r,c),0)),borderColor:'#333',backgroundColor:'transparent',fill:false,tension:.4,pointRadius:3,borderWidth:2.5,borderDash:[4,3]});
   }
-  CH['chart-evo']=new Chart(document.getElementById('chart-evo'),{type:'line',data:{labels,datasets:ds},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:ds.length>1},tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': '+fUSD(ctx.raw)}}},scales:{y:{ticks:{callback:v=>fUSD(v)},grid:{color:'rgba(128,128,128,.08)'}},x:{grid:{display:false}}}}});
+  CH['chart-evo']=new Chart(document.getElementById('chart-evo'),{type:'line',data:{labels,datasets:ds},options:{spanGaps:false,responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:ds.length>1},tooltip:{callbacks:{label:ctx=>ctx.raw!==null?ctx.dataset.label+': '+fUSD(ctx.raw):ctx.dataset.label+': sin datos'}}},scales:{y:{ticks:{callback:v=>fUSD(v)},grid:{color:'rgba(128,128,128,.08)'}},x:{grid:{display:false}}}}});
 
   const tableCols=evoGrupo==='total'?PROJS:EVO_GRUPOS[evoGrupo].projs;
   const rows=[...h].reverse().map(r=>{
@@ -804,6 +813,10 @@ function processHistFile(file){
           else if(typeof rawDate==='string'){dateStr=rawDate;}
           else if(rawDate instanceof Date){dateStr=rawDate.toISOString().split('T')[0];}
           if(!dateStr||dateStr==='NaN-aN-aN')continue;
+          // Ignorar filas donde todos los valores son 0 (días sin datos)
+          const vals = [row[1],row[2],row[3],row[4],row[5],row[6],row[7],row[8],row[9],row[10]];
+          const hasData = vals.some(v => parseFloat(v)||0 > 0);
+          if(!hasData) continue;
           if(!histMap[dateStr])histMap[dateStr]={fecha:dateStr};
           PROJS.forEach((code,pi)=>{
             histMap[dateStr][code+'_'+cajaKey+'_liq']=parseFloat(row[1+pi*2])||0;
@@ -826,6 +839,8 @@ function processHistFile(file){
         else{S.historico.push(importRow);added++;}
       });
       S.historico.sort((a,b)=>a.fecha.localeCompare(b.fecha));
+      // Eliminar filas con total 0 que hayan entrado por error
+      S.historico = S.historico.filter(r => (r.total||0) > 0);
       const el=document.getElementById('hist-import-msg');
       el.className='pru-msg pru-ok';el.style.display='block';
       el.innerHTML=`<strong>✓ Historial importado</strong> — ${added} días nuevos, ${updated} actualizados.<br><small>Guardá para sincronizar con la nube.</small>`;
