@@ -244,16 +244,43 @@ input:focus,select:focus{outline:none;border-color:var(--blue);}
 
   <!-- ══ EVOLUTIVO ══ -->
   <div id="tab-evolutivo" class="sh">
+    <!-- Fila 1: filtro caja -->
+    <div class="filter-pills" style="margin-bottom:10px">
+      <button class="pill active-all" id="evo-caja-all" onclick="setEvoCaja('all')">Ambas cajas</button>
+      <button class="pill" id="evo-caja-a"   onclick="setEvoCaja('a')">Caja A</button>
+      <button class="pill" id="evo-caja-pru" onclick="setEvoCaja('pru')">Caja Pru</button>
+    </div>
+
     <div class="card">
       <div class="toggle-row">
         <div class="card-title" style="margin-bottom:0">Evolución de cajas (USD)</div>
-        <div class="toggle-group" id="evo-toggles"></div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+          <!-- Grupos -->
+          <div class="toggle-group" id="evo-grupos"></div>
+          <!-- Proyectos dentro del grupo -->
+          <div class="toggle-group" id="evo-projs" style="margin-left:4px"></div>
+        </div>
       </div>
       <div class="chart-wrap" style="height:300px;margin-top:1rem"><canvas id="chart-evo"></canvas></div>
     </div>
     <div class="card">
       <div class="card-title">Historial diario</div>
       <div id="tabla-evo"></div>
+    </div>
+
+    <!-- Import historial -->
+    <div class="card">
+      <div class="card-title">Importar historial desde plantilla Excel</div>
+      <div class="pru-upload" onclick="document.getElementById('hist-file').click()"
+           ondragover="event.preventDefault();this.style.background='var(--bg2)'"
+           ondragleave="this.style.background=''"
+           ondrop="event.preventDefault();this.style.background='';processHistFile(event.dataTransfer.files[0])">
+        <div class="icon">📊</div>
+        <strong style="font-size:13px">Subir plantilla de historial (.xlsx)</strong>
+        <p style="font-size:12px;color:var(--text2);margin-top:4px">Arrastrá el archivo o hacé clic para seleccionar</p>
+      </div>
+      <input type="file" id="hist-file" accept=".xlsx,.xls" style="display:none" onchange="processHistFile(this.files[0])">
+      <div id="hist-import-msg" class="pru-msg"></div>
     </div>
   </div>
 
@@ -318,8 +345,8 @@ input:focus,select:focus{outline:none;border-color:var(--blue);}
 // ══════════════════════════════════════════════════════════════════════════════
 // CONFIGURACIÓN
 // ══════════════════════════════════════════════════════════════════════════════
-const BIN_ID   = '69bc1ee3b7ec241ddc82cea5';
-const API_KEY  = '$2a$10$SiLLJfj17o5SXmbA8rhlFe0bLndFMrwdRII7hqzwEnwI6/LqGa/dG';
+const BIN_ID   = 'TU_BIN_ID_AQUI';
+const API_KEY  = 'TU_API_KEY_AQUI';
 const ADMIN_PW = 'cajas2026';   // acceso total — podés editar datos
 const VIEW_PW  = 'ver2026';     // solo lectura — cambiá por la clave que quieras
 let isAdmin = false;
@@ -336,7 +363,7 @@ const PROJ_CLS    = { IC:'ic', TRU:'tru', AWY:'awy', CUZ:'cuz', DOMI:'domi' };
 const PRU_MAP    = { Tru:'TRU', Ico:'IC', Domi:'DOMI', Cuzco:'CUZ', Awy:'AWY' };
 const PRU_IGNORE = ['Banco E1','Banco E2'];
 
-let filtro = 'all', evoView = 'total', CH = {};
+let filtro = 'all', evoCaja = 'all', evoGrupo = 'total', evoProj = null, CH = {};
 
 const DEFAULT_S = {
   lastUpdate:'2026-03-18', titulo:'Reporte Diario de Cajas', tcARS:1100, tcARS_pru:1100, tcEUR:1.08,
@@ -515,23 +542,6 @@ function renderTabla(){
   document.getElementById('tabla-posicion').innerHTML=`<table><thead><tr><th>Proyecto</th>${thA}${thP}<th style="text-align:right">Total</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
-// ── RENDER: EVOLUTIVO ─────────────────────────────────────────────────────────
-function renderEvolutivo(){
-  const h=S.historico||[];const labels=h.map(r=>fDate(r.fecha));
-  dC('chart-evo');
-  let ds=[];
-  if(evoView==='total'){ds=[{label:'Total',data:h.map(r=>r.total||0),borderColor:'#378ADD',backgroundColor:'rgba(55,138,221,.07)',fill:true,tension:.4,pointRadius:4,pointBackgroundColor:'#378ADD',borderWidth:2}];}
-  else if(evoView==='todos'){ds=PROJS.map(c=>({label:PROJ_NAMES[c],data:h.map(r=>r[c]||0),borderColor:PROJ_COLORS[c],backgroundColor:'transparent',fill:false,tension:.4,pointRadius:3,borderWidth:2}));}
-  else{const c=evoView;ds=[{label:PROJ_NAMES[c],data:h.map(r=>r[c]||0),borderColor:PROJ_COLORS[c],backgroundColor:'transparent',fill:false,tension:.4,pointRadius:4,borderWidth:2}];}
-  CH['chart-evo']=new Chart(document.getElementById('chart-evo'),{type:'line',data:{labels,datasets:ds},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:evoView==='todos'},tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': '+fUSD(ctx.raw)}}},scales:{y:{ticks:{callback:v=>fUSD(v)},grid:{color:'rgba(128,128,128,.08)'}},x:{grid:{display:false}}}}});
-  const rows=[...h].reverse().map(r=>{
-    const idx=h.findIndex(x=>x.fecha===r.fecha);let vStr='—';
-    if(idx>0&&h[idx-1].total){const v=(r.total-h[idx-1].total)/Math.abs(h[idx-1].total)*100;vStr=`<span class="${v>=0?'pos':'neg'}">${v>=0?'+':''}${v.toFixed(2)}%</span>`;}
-    return`<tr><td class="td-name">${fDate(r.fecha)}</td><td class="td-r" style="color:var(--ic)">${fUSD(r.IC||0)}</td><td class="td-r" style="color:var(--tru)">${fUSD(r.TRU||0)}</td><td class="td-r" style="color:var(--awy)">${fUSD(r.AWY||0)}</td><td class="td-r" style="color:var(--cuz)">${fUSD(r.CUZ||0)}</td><td class="td-r" style="color:var(--domi)">${fUSD(r.DOMI||0)}</td><td class="td-r" style="font-weight:600">${fUSD(r.total||0)}</td><td class="td-r">${vStr}</td></tr>`;
-  }).join('');
-  document.getElementById('tabla-evo').innerHTML=`<table><thead><tr><th>Fecha</th><th style="text-align:right;color:var(--ic)">IC</th><th style="text-align:right;color:var(--tru)">TRU</th><th style="text-align:right;color:var(--awy)">AWY</th><th style="text-align:right;color:var(--cuz)">CUZ</th><th style="text-align:right;color:var(--domi)">DOMI</th><th style="text-align:right">Total</th><th style="text-align:right">Var.</th></tr></thead><tbody>${rows}</tbody></table>`;
-}
-
 // ── CARGA PRU ─────────────────────────────────────────────────────────────────
 function processPruFile(file){
   if(!file)return;
@@ -666,10 +676,6 @@ function setFiltro(f){
   ['all','a','pru'].forEach(x=>{const b=document.getElementById('f-'+x);b.className='pill';if(x===f)b.classList.add(m[x]);});
   renderMetrics();renderCards();renderCharts();renderTabla();
 }
-function setEvo(v){
-  evoView=v;renderEvoToggles();
-  renderEvolutivo();
-}
 let editUnlocked=false;
 function checkPw(){
   if(document.getElementById('pw-input').value===ADMIN_PW){
@@ -690,8 +696,6 @@ function renderAll(){
   document.getElementById('fecha-header').textContent='Datos al '+fDate(S.lastUpdate);
   renderMetrics();renderCards();renderCharts();renderTabla();
 }
-
-// ── TÍTULO EDITABLE ───────────────────────────────────────────────────────────
 function editarTitulo(){
   const d=document.getElementById('titulo-display'),inp=document.getElementById('titulo-input');
   inp.value=d.textContent;d.style.display='none';inp.style.display='inline-block';inp.focus();inp.select();
@@ -699,39 +703,137 @@ function editarTitulo(){
 function guardarTitulo(){
   const d=document.getElementById('titulo-display'),inp=document.getElementById('titulo-input');
   const v=inp.value.trim()||'Reporte Diario de Cajas';
-  S.titulo=v;d.textContent=v;document.title=v;
-  inp.style.display='none';d.style.display='inline-block';
+  S.titulo=v;d.textContent=v;document.title=v;inp.style.display='none';d.style.display='inline-block';
 }
-
-// ── PASSWORD GATE GLOBAL ─────────────────────────────────────────────────────
 function checkGate(){
   const v=document.getElementById('gate-pw').value;
-  if(v===ADMIN_PW){ isAdmin=true; openDash(); }
-  else if(v===VIEW_PW){ isAdmin=false; openDash(); }
-  else{
-    document.getElementById('gate-err').style.display='block';
-    document.getElementById('gate-pw').value='';
-    document.getElementById('gate-pw').focus();
-  }
+  if(v===ADMIN_PW){isAdmin=true;openDash();}
+  else if(v===VIEW_PW){isAdmin=false;openDash();}
+  else{document.getElementById('gate-err').style.display='block';document.getElementById('gate-pw').value='';document.getElementById('gate-pw').focus();}
 }
 function openDash(){
   document.getElementById('gate-overlay').style.display='none';
   document.getElementById('loader-overlay').style.display='flex';
-  // Ocultar pestaña Editar si es lector
-  if(!isAdmin) document.querySelectorAll('.tabs .tab')[2].style.display='none';
+  if(!isAdmin)document.querySelectorAll('.tabs .tab')[2].style.display='none';
   cargarNube();
 }
 
-// ── TOGGLE BUTTONS DINÁMICOS ──────────────────────────────────────────────────
+function setEvo(v){ setEvoGrupo(v); }
+
+// ── EVOLUTIVO: GRUPOS Y FILTRO CAJA ──────────────────────────────────────────
+const EVO_GRUPOS = {
+  total: { label:'Total', projs:['IC','TRU','AWY','CUZ','DOMI'] },
+  arg:   { label:'🇦🇷 Caja Argentina', projs:['IC','TRU','AWY'] },
+  intl:  { label:'🌎 Caja Internacional', projs:['CUZ','DOMI'] },
+};
+
+function setEvoCaja(v){
+  evoCaja=v;
+  const map={all:'active-all',a:'active-a',pru:'active-pru'};
+  ['all','a','pru'].forEach(x=>{const b=document.getElementById('evo-caja-'+x);b.className='pill';if(x===v)b.classList.add(map[x]);});
+  renderEvoToggles();renderEvolutivo();
+}
+function setEvoGrupo(g){ evoGrupo=g; evoProj=null; renderEvoToggles(); renderEvolutivo(); }
+function setEvoProj(p){ evoProj=evoProj===p?null:p; renderEvoToggles(); renderEvolutivo(); }
+
 function renderEvoToggles(){
-  const c=[
-    {id:'total',label:'Total'},
-    ...PROJS.map(c=>({id:c,label:PROJ_NAMES[c]})),
-    {id:'todos',label:'Todos'}
-  ];
-  document.getElementById('evo-toggles').innerHTML=c.map(b=>
-    `<button class="toggle-btn${b.id==='total'&&evoView==='total'?' active':b.id===evoView?' active':''}" id="evo-${b.id}" onclick="setEvo('${b.id}')">${b.label}</button>`
+  const grpBtns=Object.entries(EVO_GRUPOS).map(([k,g])=>
+    `<button class="toggle-btn${evoGrupo===k?' active':''}" onclick="setEvoGrupo('${k}')">${g.label}</button>`
   ).join('');
+  document.getElementById('evo-grupos').innerHTML=grpBtns;
+  if(evoGrupo==='total'){ document.getElementById('evo-projs').innerHTML=''; return; }
+  const projs=EVO_GRUPOS[evoGrupo].projs;
+  document.getElementById('evo-projs').innerHTML=projs.map(c=>
+    `<button class="toggle-btn${evoProj===c?' active':''}" onclick="setEvoProj('${c}')" style="border-left:3px solid ${PROJ_COLORS[c]}">${PROJ_NAMES[c]}</button>`
+  ).join('');
+}
+
+function evoValue(row,code){
+  if(evoCaja==='a')  return row[code+'_a']||row[code]||0;
+  if(evoCaja==='pru')return row[code+'_pru']||0;
+  return row[code]||0;
+}
+function evoTotal(row){ return PROJS.reduce((s,c)=>s+evoValue(row,c),0); }
+
+function renderEvolutivo(){
+  const h=S.historico||[]; const labels=h.map(r=>fDate(r.fecha));
+  dC('chart-evo');
+  const projs=evoGrupo==='total'?PROJS:EVO_GRUPOS[evoGrupo].projs;
+  let ds=[];
+  if(evoProj){
+    ds=[{label:PROJ_NAMES[evoProj],data:h.map(r=>evoValue(r,evoProj)),borderColor:PROJ_COLORS[evoProj],backgroundColor:PROJ_COLORS[evoProj]+'18',fill:true,tension:.4,pointRadius:4,borderWidth:2}];
+  } else if(evoGrupo==='total'){
+    ds=[{label:'Total consolidado',data:h.map(r=>evoTotal(r)),borderColor:'#378ADD',backgroundColor:'rgba(55,138,221,.07)',fill:true,tension:.4,pointRadius:4,borderWidth:2}];
+  } else {
+    ds=projs.map(c=>({label:PROJ_NAMES[c],data:h.map(r=>evoValue(r,c)),borderColor:PROJ_COLORS[c],backgroundColor:'transparent',fill:false,tension:.4,pointRadius:3,borderWidth:2}));
+    ds.unshift({label:EVO_GRUPOS[evoGrupo].label+' Total',data:h.map(r=>projs.reduce((s,c)=>s+evoValue(r,c),0)),borderColor:'#333',backgroundColor:'transparent',fill:false,tension:.4,pointRadius:3,borderWidth:2.5,borderDash:[4,3]});
+  }
+  CH['chart-evo']=new Chart(document.getElementById('chart-evo'),{type:'line',data:{labels,datasets:ds},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:ds.length>1},tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': '+fUSD(ctx.raw)}}},scales:{y:{ticks:{callback:v=>fUSD(v)},grid:{color:'rgba(128,128,128,.08)'}},x:{grid:{display:false}}}}});
+
+  const tableCols=evoGrupo==='total'?PROJS:EVO_GRUPOS[evoGrupo].projs;
+  const rows=[...h].reverse().map(r=>{
+    const idx=h.findIndex(x=>x.fecha===r.fecha); let vStr='—';
+    if(idx>0){const ct=evoTotal(r),pt=evoTotal(h[idx-1]);if(pt){const v=(ct-pt)/Math.abs(pt)*100;vStr=`<span class="${v>=0?'pos':'neg'}">${v>=0?'+':''}${v.toFixed(2)}%</span>`;}}
+    return`<tr><td class="td-name">${fDate(r.fecha)}</td>${tableCols.map(c=>`<td class="td-r" style="color:var(--${PROJ_CLS[c]})">${fUSD(evoValue(r,c))}</td>`).join('')}<td class="td-r" style="font-weight:600">${fUSD(tableCols.reduce((s,c)=>s+evoValue(r,c),0))}</td><td class="td-r">${vStr}</td></tr>`;
+  }).join('');
+  const thCols=tableCols.map(c=>`<th style="text-align:right;color:var(--${PROJ_CLS[c]})">${PROJ_NAMES[c]}</th>`).join('');
+  document.getElementById('tabla-evo').innerHTML=`<table><thead><tr><th>Fecha</th>${thCols}<th style="text-align:right">Total</th><th style="text-align:right">Var.</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+// ── IMPORT HISTORIAL ─────────────────────────────────────────────────────────
+function processHistFile(file){
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const wb=XLSX.read(e.target.result,{type:'array'});
+      const wsA=wb.Sheets['CAJA A'], wsP=wb.Sheets['CAJA PRU'];
+      if(!wsA&&!wsP)throw new Error('No se encontraron las hojas "CAJA A" o "CAJA PRU"');
+      const histMap={};
+      function parseSheet(ws,cajaKey){
+        if(!ws)return;
+        const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:0});
+        for(let i=4;i<rows.length;i++){
+          const row=rows[i]; const rawDate=row[0]; if(!rawDate)continue;
+          let dateStr='';
+          if(typeof rawDate==='number'){const d=new Date(Math.round((rawDate-25569)*86400*1000));dateStr=d.toISOString().split('T')[0];}
+          else if(typeof rawDate==='string'&&rawDate.includes('/')){const[dd,mm,yy]=rawDate.split('/');dateStr=`${yy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`;}
+          else if(typeof rawDate==='string'){dateStr=rawDate;}
+          else if(rawDate instanceof Date){dateStr=rawDate.toISOString().split('T')[0];}
+          if(!dateStr||dateStr==='NaN-aN-aN')continue;
+          if(!histMap[dateStr])histMap[dateStr]={fecha:dateStr};
+          PROJS.forEach((code,pi)=>{
+            histMap[dateStr][code+'_'+cajaKey+'_liq']=parseFloat(row[1+pi*2])||0;
+            histMap[dateStr][code+'_'+cajaKey+'_inv']=parseFloat(row[2+pi*2])||0;
+          });
+        }
+      }
+      parseSheet(wsA,'a'); parseSheet(wsP,'pru');
+      let added=0,updated=0;
+      Object.values(histMap).forEach(importRow=>{
+        PROJS.forEach(code=>{
+          const aLiq=importRow[code+'_a_liq']||0, aInv=importRow[code+'_a_inv']||0;
+          const pLiq=importRow[code+'_pru_liq']||0, pInv=importRow[code+'_pru_inv']||0;
+          importRow[code+'_a']=aLiq+aInv; importRow[code+'_pru']=pLiq+pInv;
+          importRow[code]=importRow[code+'_a']+importRow[code+'_pru'];
+        });
+        importRow.total=PROJS.reduce((s,c)=>s+(importRow[c]||0),0);
+        const idx=S.historico.findIndex(r=>r.fecha===importRow.fecha);
+        if(idx>=0){S.historico[idx]={...S.historico[idx],...importRow};updated++;}
+        else{S.historico.push(importRow);added++;}
+      });
+      S.historico.sort((a,b)=>a.fecha.localeCompare(b.fecha));
+      const el=document.getElementById('hist-import-msg');
+      el.className='pru-msg pru-ok';el.style.display='block';
+      el.innerHTML=`<strong>✓ Historial importado</strong> — ${added} días nuevos, ${updated} actualizados.<br><small>Guardá para sincronizar con la nube.</small>`;
+      renderEvolutivo();
+    }catch(err){
+      const el=document.getElementById('hist-import-msg');
+      el.className='pru-msg pru-err';el.style.display='block';
+      el.textContent='Error al procesar: '+err.message;
+    }
+  };
+  reader.readAsArrayBuffer(file);
 }
 
 cargarNube();
