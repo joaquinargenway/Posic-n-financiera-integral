@@ -341,14 +341,17 @@ input:focus,select:focus{outline:none;border-color:var(--blue);}
   </div>
 </div>
 
+<!-- Credenciales privadas — editá config.js, no este archivo -->
+<script src="config.js"></script>
 <script>
 // ══════════════════════════════════════════════════════════════════════════════
-// CONFIGURACIÓN
+// CREDENCIALES — se leen desde config.js (ver instrucciones abajo)
+// Si no usás config.js, reemplazá los valores directamente acá
 // ══════════════════════════════════════════════════════════════════════════════
-const BIN_ID   = '69bc1ee3b7ec241ddc82cea5';
-const API_KEY  = '$2a$10$SiLLJfj17o5SXmbA8rhlFe0bLndFMrwdRII7hqzwEnwI6/LqGa/dG';
-const ADMIN_PW = 'cajas2026';   // acceso total — podés editar datos
-const VIEW_PW  = 'ver2026';     // solo lectura — cambiá por la clave que quieras
+const BIN_ID   = window.CAJAS_BIN_ID   || 'TU_BIN_ID_AQUI';
+const API_KEY  = window.CAJAS_API_KEY  || 'TU_API_KEY_AQUI';
+const ADMIN_PW = window.CAJAS_ADMIN_PW || 'cajas2026';
+const VIEW_PW  = window.CAJAS_VIEW_PW  || 'ver2026';
 let isAdmin = false;
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -835,8 +838,6 @@ function processHistFile(file){
   };
   reader.readAsArrayBuffer(file);
 }
-
-cargarNube();
 </script>
 </body>
 </html>
