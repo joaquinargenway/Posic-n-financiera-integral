@@ -252,11 +252,11 @@ input:focus,select:focus{outline:none;border-color:var(--blue);}
     </div>
     <!-- Deuda integral resumen -->
     <div class="card" id="deuda-resumen-card" style="display:none">
-      <div class="toggle-row" style="margin-bottom:8px">
-        <div class="card-title" style="margin-bottom:0">Deuda Integral — resumen</div>
+      <div class="toggle-row" style="margin-bottom:10px">
+        <div class="card-title" style="margin-bottom:0">Deuda neta por proyecto (equiv. USD)</div>
         <button class="pill" onclick="showTab('deuda')" style="font-size:11px;padding:3px 10px">Ver detalle →</button>
       </div>
-      <div id="deuda-resumen-content"></div>
+      <div class="chart-wrap" style="height:180px"><canvas id="chart-deuda-resumen"></canvas></div>
     </div>
 
     <div class="card">
@@ -313,9 +313,10 @@ input:focus,select:focus{outline:none;border-color:var(--blue);}
     <!-- Filtros -->
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
       <div class="filter-pills" style="margin-bottom:0">
-        <button class="pill active-all" id="df-all"   onclick="setDeudaFiltro('all')">Todas</button>
-        <button class="pill"            id="df-entre" onclick="setDeudaFiltro('entre')">Entre cajas</button>
-        <button class="pill"            id="df-pru"   onclick="setDeudaFiltro('pru')">Interna Pru</button>
+        <button class="pill active-all" id="df-all"     onclick="setDeudaFiltro('all')">Todas</button>
+        <button class="pill"            id="df-entre"   onclick="setDeudaFiltro('entre')">Entre cajas</button>
+        <button class="pill"            id="df-pru"     onclick="setDeudaFiltro('pru')">Interna Pru</button>
+        <button class="pill"            id="df-interna" onclick="setDeudaFiltro('interna')">Interna A</button>
       </div>
       <div class="filter-pills" style="margin-bottom:0;margin-left:8px">
         <button class="pill active-all" id="dt-all"   onclick="setDeudaTipo('all')">Todos los tipos</button>
@@ -994,6 +995,7 @@ function setFiltro(f){
   filtro=f;const m={all:'active-all',a:'active-a',pru:'active-pru'};
   ['all','a','pru'].forEach(x=>{const b=document.getElementById('f-'+x);b.className='pill';if(x===f)b.classList.add(m[x]);});
   renderMetrics();renderCards();renderCharts();renderTabla();
+  renderDeudaResumenPosicion();
 }
 let editUnlocked=false;
 async function checkPw(){
@@ -1041,7 +1043,9 @@ function deudaToUSD(d){
 
 function getDeudas(){
   let arr = S.deudas||[];
-  if(deudaFiltro!=='all') arr=arr.filter(d=>d.hoja===deudaFiltro);
+  if(deudaFiltro==='entre')   arr=arr.filter(d=>d.hoja==='entre');
+  else if(deudaFiltro==='pru') arr=arr.filter(d=>d.hoja==='pru');
+  else if(deudaFiltro==='interna') arr=arr.filter(d=>d.hoja==='interna');
   if(deudaTipo==='prestamo') arr=arr.filter(d=>d.tipo==='Prestamo');
   else if(deudaTipo==='declaracion') arr=arr.filter(d=>d.tipo!=='Prestamo');
   const q = document.getElementById('deuda-search')?.value?.toLowerCase()||'';
@@ -1051,8 +1055,8 @@ function getDeudas(){
 
 function setDeudaFiltro(f){
   deudaFiltro=f;
-  const m={all:'active-all',entre:'active-a',pru:'active-pru'};
-  ['all','entre','pru'].forEach(x=>{const b=document.getElementById('df-'+x);if(b){b.className='pill';if(x===f)b.classList.add(m[x]);}});
+  const m={all:'active-all',entre:'active-a',pru:'active-pru',interna:'active-a'};
+  ['all','entre','pru','interna'].forEach(x=>{const b=document.getElementById('df-'+x);if(b){b.className='pill';if(x===f)b.classList.add(m[x]);}});
   renderDeuda();
 }
 function setDeudaTipo(t){
@@ -1064,13 +1068,21 @@ function setDeudaTipo(t){
 
 function renderDeudaMetrics(){
   const arr=getDeudas();
-  const totalUSD=arr.reduce((s,d)=>s+deudaToUSD(d),0);
-  const porTipo={prestamo:0,decla:0};
-  arr.forEach(d=>{ if(d.tipo==='Prestamo') porTipo.prestamo+=deudaToUSD(d); else porTipo.decla+=deudaToUSD(d); });
+  // Deuda neta = lo que se debe - lo que le deben (desde el punto de vista del grupo)
+  // Calculamos flujos: cada registro es un préstamo de "desde" hacia "hacia"
+  // Total prestado (activo del grupo) y total recibido (pasivo del grupo)
+  const totalUSD = arr.reduce((s,d)=>s+deudaToUSD(d),0);
+  const prestamos = arr.filter(d=>d.tipo==='Prestamo').reduce((s,d)=>s+deudaToUSD(d),0);
+  const declas = arr.filter(d=>d.tipo!=='Prestamo').reduce((s,d)=>s+deudaToUSD(d),0);
+  // Deuda neta por tipo: diferencia entre lo que se presta y lo que se recibe
+  const netoTotal = arr.reduce((s,d)=>{
+    // Si "desde" y "hacia" son del mismo grupo, se cancelan → deuda interna
+    return s + deudaToUSD(d);
+  }, 0);
   document.getElementById('deuda-metrics').innerHTML=`
-    <div class="metric"><div class="metric-label">Total deuda (equiv. USD)</div><div class="metric-value">${fUSD(totalUSD)}</div><div class="metric-sub" style="color:var(--text2)">${arr.length} registros</div></div>
-    <div class="metric"><div class="metric-label">Préstamos</div><div class="metric-value sm">${fUSD(porTipo.prestamo)}</div><div class="metric-sub" style="color:var(--text2)">${arr.filter(d=>d.tipo==='Prestamo').length} registros</div></div>
-    <div class="metric"><div class="metric-label">Decl. diferidas</div><div class="metric-value sm">${fUSD(porTipo.decla)}</div><div class="metric-sub" style="color:var(--text2)">${arr.filter(d=>d.tipo!=='Prestamo').length} registros</div></div>`;
+    <div class="metric"><div class="metric-label">Deuda neta total (equiv. USD)</div><div class="metric-value">${fUSD(totalUSD)}</div><div class="metric-sub" style="color:var(--text2)">${arr.length} registros</div></div>
+    <div class="metric"><div class="metric-label">Deuda neta préstamos</div><div class="metric-value sm">${fUSD(prestamos)}</div><div class="metric-sub" style="color:var(--text2)">${arr.filter(d=>d.tipo==='Prestamo').length} registros</div></div>
+    <div class="metric"><div class="metric-label">Deuda neta decl. diferidas</div><div class="metric-value sm">${fUSD(declas)}</div><div class="metric-sub" style="color:var(--text2)">${arr.filter(d=>d.tipo!=='Prestamo').length} registros</div></div>`;
 }
 
 function renderDeudaChart(){
@@ -1154,24 +1166,40 @@ function renderDeudaTabla(){
 
 function renderDeudaResumenPosicion(){
   const arr=S.deudas||[];
-  const total=arr.reduce((s,d)=>s+deudaToUSD(d),0);
   const card=document.getElementById('deuda-resumen-card');
-  const cont=document.getElementById('deuda-resumen-content');
   if(!arr.length){if(card)card.style.display='none';return;}
   if(card)card.style.display='block';
-  // Top 3 mayores deudas
-  const top=[...arr].sort((a,b)=>deudaToUSD(b)-deudaToUSD(a)).slice(0,3);
-  const rows=top.map(d=>`<tr>
-    <td class="td-name" style="font-size:12px">${d.detalle}</td>
-    <td style="font-size:12px;color:var(--text2)">${d.desde} → ${d.hacia}</td>
-    <td class="td-r" style="font-size:12px;font-weight:600">${fUSD(deudaToUSD(d))}</td>
-  </tr>`).join('');
-  if(cont) cont.innerHTML=`
-    <div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap">
-      <span style="font-size:13px">Total deuda: <strong>${fUSD(total)}</strong></span>
-      <span style="font-size:13px;color:var(--text2)">${arr.length} registros</span>
-    </div>
-    <table><thead><tr><th>Top deudas</th><th>Partes</th><th style="text-align:right">Monto</th></tr></thead><tbody>${rows}</tbody></table>`;
+
+  // Filter by current caja filter
+  let filtered=arr;
+  if(filtro==='a')   filtered=arr.filter(d=>d.hoja==='entre'||d.hoja==='interna');
+  if(filtro==='pru') filtered=arr.filter(d=>d.hoja==='pru');
+
+  const projs=['ICON','TRU','AWY','CUS','DOM','HAMPTON BRC'];
+  const projColors={'ICON':'#2E75B6','TRU':'#375623','AWY':'#7030A0','CUS':'#C55A11','DOM':'#843C0C','HAMPTON BRC':'#4A4A4A'};
+  const neto={};
+  projs.forEach(p=>neto[p]=0);
+  filtered.forEach(d=>{
+    const desde=parseEmpresa(d.desde).proj;
+    const hacia=parseEmpresa(d.hacia).proj;
+    const v=deudaToUSD(d);
+    if(neto[desde]!==undefined) neto[desde]-=v;
+    if(neto[hacia]!==undefined) neto[hacia]+=v;
+  });
+  const labels=projs.filter(p=>neto[p]!==0);
+  const data=labels.map(p=>neto[p]);
+  const colors=data.map(v=>v>0?'#E24B4A':'#1D9E75');
+
+  dC('chart-deuda-resumen');
+  if(!document.getElementById('chart-deuda-resumen'))return;
+  CH['chart-deuda-resumen']=new Chart(document.getElementById('chart-deuda-resumen'),{
+    type:'bar',
+    data:{labels,datasets:[{data,backgroundColor:colors,borderRadius:4,borderSkipped:false}]},
+    options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',
+      plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:ctx=>{const v=ctx.raw;return(v>0?' Debe: ':' Le deben: ')+fUSD(Math.abs(v));}}}},
+      scales:{x:{ticks:{callback:v=>fUSD(Math.abs(v))},grid:{color:'rgba(128,128,128,.08)'}},y:{grid:{display:false}}}}
+  });
 }
 
 function renderDeuda(){
@@ -1192,7 +1220,9 @@ function processDeudaFile(file){
       wb.SheetNames.forEach(sheetName=>{
         const ws=wb.Sheets[sheetName];
         const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:false});
-        const hoja=sheetName.toLowerCase().includes('pru')?'pru':'entre';
+        const sn=sheetName.toLowerCase();
+        const hoja=sn.includes('pru')||sn.includes('b ')||sn.includes(' b')?'pru':
+                   sn.includes('interna a')||sn.includes('caja a')||sn.includes('entre proyecto')?'interna':'entre';
         for(let i=1;i<rows.length;i++){
           const r=rows[i];
           const fecha=r[1], detalle=r[2], moneda=r[3], desde=r[4], hacia=r[5], montoRaw=r[6], tipo=r[8];
