@@ -1,0 +1,48 @@
+name: Deploy Dashboard
+ 
+on:
+  push:
+    branches: [ main ]
+ 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+ 
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+ 
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+ 
+      - name: Generar config.js desde GitHub Secrets
+        run: |
+          cat > config.js << 'CONFIGEOF'
+          window.CAJAS_BIN_ID    = '${{ secrets.CAJAS_BIN_ID }}';
+          window.CAJAS_API_KEY   = '${{ secrets.CAJAS_API_KEY }}';
+          window.CAJAS_ADMIN_HASH= '${{ secrets.CAJAS_ADMIN_HASH }}';
+          window.CAJAS_VIEW_HASH = '${{ secrets.CAJAS_VIEW_HASH }}';
+          CONFIGEOF
+ 
+      - name: Renombrar dashboard a index.html
+        run: |
+          if [ -f "cajas_dashboard.html" ]; then
+            mv cajas_dashboard.html index.html
+          fi
+ 
+      - name: Configurar GitHub Pages
+        uses: actions/configure-pages@v4
+ 
+      - name: Subir archivos al sitio
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+ 
+      - name: Deploy a GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
