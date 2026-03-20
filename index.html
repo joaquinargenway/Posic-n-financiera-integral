@@ -1165,6 +1165,7 @@ function renderDeudaTabla(){
 }
 
 function renderDeudaResumenPosicion(){
+  if(!isAdmin) return;
   const arr=S.deudas||[];
   const card=document.getElementById('deuda-resumen-card');
   if(!arr.length){if(card)card.style.display='none';return;}
@@ -1318,7 +1319,7 @@ function renderAll(){
   document.getElementById('fecha-header').textContent='Datos al '+fDate(S.lastUpdate);
   populateFechaSelector();
   renderMetrics();renderCards();renderCharts();renderTabla();
-  renderDeudaResumenPosicion();
+  if(isAdmin) renderDeudaResumenPosicion();
 }
 function editarTitulo(){
   const d=document.getElementById('titulo-display'),inp=document.getElementById('titulo-input');
@@ -1347,7 +1348,11 @@ async function checkGate(){
 function openDash(){
   document.getElementById('gate-overlay').style.display='none';
   document.getElementById('loader-overlay').style.display='flex';
-  if(!isAdmin)document.querySelectorAll('.tabs .tab')[2].style.display='none';
+  if(!isAdmin){
+    document.querySelectorAll('.tabs .tab')[2].style.display='none'; // Deuda
+    document.querySelectorAll('.tabs .tab')[3].style.display='none'; // Editar
+    document.getElementById('deuda-resumen-card').style.display='none';
+  }
   cargarNube();
 }
 
