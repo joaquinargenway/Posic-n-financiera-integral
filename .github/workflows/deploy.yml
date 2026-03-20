@@ -29,14 +29,15 @@ jobs:
         run: |
           python3 - << 'PYEOF'
           import os
-          lines = [
-            "window.CAJAS_BIN_ID    = '{}';\n".format(os.environ['CAJAS_BIN_ID']),
-            "window.CAJAS_API_KEY   = '{}';\n".format(os.environ['CAJAS_API_KEY']),
-            "window.CAJAS_ADMIN_HASH= '{}';\n".format(os.environ['CAJAS_ADMIN_HASH']),
-            "window.CAJAS_VIEW_HASH = '{}';\n".format(os.environ['CAJAS_VIEW_HASH']),
-          ]
+          def s(k): return os.environ.get(k, '').strip()
+          content = (
+            "window.CAJAS_BIN_ID    = '{}';\n".format(s('CAJAS_BIN_ID')) +
+            "window.CAJAS_API_KEY   = '{}';\n".format(s('CAJAS_API_KEY')) +
+            "window.CAJAS_ADMIN_HASH= '{}';\n".format(s('CAJAS_ADMIN_HASH')) +
+            "window.CAJAS_VIEW_HASH = '{}';\n".format(s('CAJAS_VIEW_HASH'))
+          )
           with open('config.js', 'w') as f:
-            f.writelines(lines)
+            f.write(content)
           print("config.js generado OK")
           PYEOF
 
