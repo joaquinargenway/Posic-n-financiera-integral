@@ -214,6 +214,7 @@ input:focus,select:focus{outline:none;border-color:var(--blue);}
   <div class="tabs">
     <button class="tab active" onclick="showTab('posicion')">Posición</button>
     <button class="tab" onclick="showTab('evolutivo')">Evolutivo</button>
+    <button class="tab" onclick="showTab('deuda')">Deuda Integral</button>
     <button class="tab" onclick="showTab('editar')">Editar datos ✎</button>
   </div>
 
@@ -249,6 +250,15 @@ input:focus,select:focus{outline:none;border-color:var(--blue);}
         <div class="chart-wrap" style="height:200px"><canvas id="chart-fondos"></canvas></div>
       </div>
     </div>
+    <!-- Deuda integral resumen -->
+    <div class="card" id="deuda-resumen-card" style="display:none">
+      <div class="toggle-row" style="margin-bottom:8px">
+        <div class="card-title" style="margin-bottom:0">Deuda Integral — resumen</div>
+        <button class="pill" onclick="showTab('deuda')" style="font-size:11px;padding:3px 10px">Ver detalle →</button>
+      </div>
+      <div id="deuda-resumen-content"></div>
+    </div>
+
     <div class="card">
       <div class="card-title">Posición detallada</div>
       <div id="tabla-posicion"></div>
@@ -294,6 +304,65 @@ input:focus,select:focus{outline:none;border-color:var(--blue);}
       </div>
       <input type="file" id="hist-file" accept=".xlsx,.xls" style="display:none" onchange="processHistFile(this.files[0])">
       <div id="hist-import-msg" class="pru-msg"></div>
+    </div>
+  </div>
+
+  <!-- ══ DEUDA INTEGRAL ══ -->
+  <div id="tab-deuda" class="sh">
+
+    <!-- Filtros -->
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+      <div class="filter-pills" style="margin-bottom:0">
+        <button class="pill active-all" id="df-all"   onclick="setDeudaFiltro('all')">Todas</button>
+        <button class="pill"            id="df-entre" onclick="setDeudaFiltro('entre')">Entre cajas</button>
+        <button class="pill"            id="df-pru"   onclick="setDeudaFiltro('pru')">Interna Pru</button>
+      </div>
+      <div class="filter-pills" style="margin-bottom:0;margin-left:8px">
+        <button class="pill active-all" id="dt-all"   onclick="setDeudaTipo('all')">Todos los tipos</button>
+        <button class="pill"            id="dt-pres"  onclick="setDeudaTipo('prestamo')">Préstamos</button>
+        <button class="pill"            id="dt-decla" onclick="setDeudaTipo('declaracion')">Decl. diferidas</button>
+      </div>
+    </div>
+
+    <!-- Métricas resumen -->
+    <div class="metrics-top" id="deuda-metrics" style="margin-bottom:12px"></div>
+
+    <!-- Gráfico mapa de deudas + saldo neto por proyecto -->
+    <div class="grid2">
+      <div class="card">
+        <div class="card-title">Deuda neta por proyecto (USD)</div>
+        <div class="legend" id="deuda-leg"></div>
+        <div class="chart-wrap" style="height:220px"><canvas id="chart-deuda-neta"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Saldo neto entre pares</div>
+        <div id="tabla-pares" style="max-height:240px;overflow-y:auto"></div>
+      </div>
+    </div>
+
+    <!-- Tabla detalle -->
+    <div class="card">
+      <div class="toggle-row" style="margin-bottom:12px">
+        <div class="card-title" style="margin-bottom:0">Detalle de deudas</div>
+        <input type="text" id="deuda-search" placeholder="Buscar..." oninput="renderDeudaTabla()"
+               style="font-size:12px;padding:5px 10px;border:1px solid var(--border2);border-radius:20px;background:var(--bg);color:var(--text);width:180px">
+      </div>
+      <div id="tabla-deuda"></div>
+    </div>
+
+    <!-- Import -->
+    <div class="card">
+      <div class="card-title">Importar desde Excel</div>
+      <div class="pru-upload" onclick="document.getElementById('deuda-file').click()"
+           ondragover="event.preventDefault();this.style.background='var(--bg2)'"
+           ondragleave="this.style.background=''"
+           ondrop="event.preventDefault();this.style.background='';processDeudaFile(event.dataTransfer.files[0])">
+        <div class="icon">📋</div>
+        <strong style="font-size:13px">Subir Excel de Deuda Integral (.xlsx)</strong>
+        <p style="font-size:12px;color:var(--text2);margin-top:4px">Mismo formato que el archivo original</p>
+      </div>
+      <input type="file" id="deuda-file" accept=".xlsx,.xls" style="display:none" onchange="processDeudaFile(this.files[0])">
+      <div id="deuda-import-msg" class="pru-msg"></div>
     </div>
   </div>
 
@@ -451,10 +520,39 @@ const PROJ_CLS    = { IC:'ic', TRU:'tru', AWY:'awy', CUZ:'cuz', DOMI:'domi' };
 const PRU_MAP    = { Tru:'TRU', Ico:'IC', Domi:'DOMI', Cuzco:'CUZ', Awy:'AWY' };
 const PRU_IGNORE = ['Banco E1','Banco E2'];
 
-let filtro = 'all', evoCaja = 'all', evoGrupo = 'total', evoProj = null, posFecha = null, CH = {};
+let filtro = 'all', evoCaja = 'all', evoGrupo = 'total', evoProj = null, posFecha = null,
+    deudaFiltro = 'all', deudaTipo = 'all', CH = {};
 
 const DEFAULT_S = {
   lastUpdate:'2026-03-18', titulo:'Reporte Diario de Cajas', tcARS:1100, tcARS_pru:1100, tcEUR:1.08,
+  deudas: [
+    {fecha:'2026-03-10',detalle:'Préstamo',moneda:'USD',desde:'ICON A',hacia:'ICON PRU',monto:35717,tipo:'Prestamo',hoja:'entre'},
+    {fecha:null,detalle:'Lencioni Adhesion A',moneda:'USD',desde:'ICON A',hacia:'ICON PRU',monto:4113,tipo:'Declaracion diferida pendiente',hoja:'entre'},
+    {fecha:'2026-02-13',detalle:'Filipini Cusco adhesion B',moneda:'USD',desde:'CUSCO PRU',hacia:'ICON A',monto:36382,tipo:'Declaracion diferida pendiente',hoja:'entre'},
+    {fecha:'2026-03-11',detalle:'Adhesion Lis Pamela',moneda:'USD',desde:'TRU A',hacia:'TRU PRU',monto:170,tipo:'Declaracion diferida pendiente',hoja:'entre'},
+    {fecha:'2026-03-11',detalle:'Adhesion Claudio Ponce',moneda:'USD',desde:'CUSCO A',hacia:'ICON PRU',monto:234,tipo:'Declaracion diferida pendiente',hoja:'entre'},
+    {fecha:'2026-02-13',detalle:'Filipini Cusco adhesion A',moneda:'USD',desde:'CUSCO A',hacia:'ICON A',monto:27500,tipo:'Declaracion diferida pendiente',hoja:'entre'},
+    {fecha:'2026-03-16',detalle:'Pase caja bariloche',moneda:'USD',desde:'HAMPTON BRC A',hacia:'ICON PRU',monto:1200,tipo:'Prestamo',hoja:'entre'},
+    {fecha:'2026-03-18',detalle:'Decla dif A Diego Espinoza',moneda:'USD',desde:'ICON A',hacia:'ICON PRU',monto:5864,tipo:'Declaracion diferida pendiente',hoja:'entre'},
+    {fecha:'2026-03-18',detalle:'Decla dif A Celia Marzoratti',moneda:'USD',desde:'ICON A',hacia:'ICON PRU',monto:12250,tipo:'Declaracion diferida pendiente',hoja:'entre'},
+    {fecha:'2026-03-18',detalle:'Decla dif A R Prosperi 10/11/2025',moneda:'USD',desde:'ICON A',hacia:'ICON PRU',monto:7023,tipo:'Declaracion diferida pendiente',hoja:'entre'},
+    {fecha:'2026-03-18',detalle:'Decla dif A R Prosperi 20/11/2025',moneda:'USD',desde:'ICON A',hacia:'ICON PRU',monto:6866,tipo:'Declaracion diferida pendiente',hoja:'entre'},
+    {fecha:'2026-03-18',detalle:'Decla dif A Jorge Begnini',moneda:'USD',desde:'ICON A',hacia:'ICON PRU',monto:10600,tipo:'Declaracion diferida pendiente',hoja:'entre'},
+    {fecha:'2026-03-18',detalle:'Decla dif A Carlos Vazquez',moneda:'USD',desde:'ICON A',hacia:'ICON PRU',monto:4270,tipo:'Declaracion diferida pendiente',hoja:'entre'},
+    {fecha:null,detalle:'Deuda Total Icon a Argenway USD',moneda:'USD',desde:'ARGENWAY A',hacia:'ICON A',monto:563973,tipo:'Prestamo',hoja:'entre'},
+    {fecha:null,detalle:'Deuda Total Icon a Argenway ARS',moneda:'ARS',desde:'ARGENWAY A',hacia:'ICON A',monto:256128748,tipo:'Prestamo',hoja:'entre'},
+    {fecha:'2026-03-19',detalle:'Préstamo',moneda:'USD',desde:'ICON A',hacia:'ICON PRU',monto:15000,tipo:'Prestamo',hoja:'entre'},
+    {fecha:null,detalle:'Prestamos entre empresas',moneda:'USD',desde:'ICON B',hacia:'AWY B',monto:645408,tipo:'Prestamo',hoja:'pru'},
+    {fecha:null,detalle:'Prestamos entre empresas',moneda:'USD',desde:'TRU B',hacia:'AWY B',monto:90545,tipo:'Prestamo',hoja:'pru'},
+    {fecha:null,detalle:'Prestamos entre empresas',moneda:'USD',desde:'TRU B',hacia:'ICON B',monto:247949,tipo:'Prestamo',hoja:'pru'},
+    {fecha:null,detalle:'Prestamos entre empresas',moneda:'USD',desde:'DOMI B',hacia:'ICON B',monto:30388,tipo:'Prestamo',hoja:'pru'},
+    {fecha:null,detalle:'Prestamos entre empresas',moneda:'USD',desde:'ICON B',hacia:'CUSCO B',monto:4841,tipo:'Prestamo',hoja:'pru'},
+    {fecha:null,detalle:'Prestamos entre empresas',moneda:'ARS',desde:'ICON B',hacia:'AWY B',monto:87179045,tipo:'Prestamo',hoja:'pru'},
+    {fecha:null,detalle:'Prestamos entre empresas',moneda:'ARS',desde:'TRU B',hacia:'AWY B',monto:82428829,tipo:'Prestamo',hoja:'pru'},
+    {fecha:null,detalle:'Prestamos entre empresas',moneda:'ARS',desde:'TRU B',hacia:'ICON B',monto:152352144,tipo:'Prestamo',hoja:'pru'},
+    {fecha:null,detalle:'Prestamos entre empresas',moneda:'ARS',desde:'ICON B',hacia:'DOMI B',monto:639700,tipo:'Prestamo',hoja:'pru'},
+    {fecha:null,detalle:'Prestamos entre empresas',moneda:'ARS',desde:'CUSCO B',hacia:'ICON B',monto:29272344,tipo:'Prestamo',hoja:'pru'},
+  ],
   proyectos:{
     IC:{
       cajA:[
@@ -520,6 +618,7 @@ async function cargarNube(){
       if(dec && dec.lastUpdate!==undefined){
         S=dec;
         if(S.historico) S.historico=S.historico.filter(r=>(r.total||0)>0);
+        if(!S.deudas) S.deudas=DEFAULT_S.deudas; // retrocompatible
       }
     }
     setSyncBadge('ok');
@@ -708,7 +807,11 @@ function renderCajaAForm(){
           <option value="EUR"${c.moneda==='EUR'?' selected':''}>EUR</option>
           <option value="ARS"${c.moneda==='ARS'?' selected':''}>ARS</option>
         </select>
-        <input type="number" value="${c.monto||0}" min="0" step="100" onchange="S.proyectos['${code}'].cajA[${i}].monto=+this.value;renderCajaAForm()">
+        <input type="text" value="${c.monto||0}" placeholder="0 o 100+50" 
+               style="font-variant-numeric:tabular-nums"
+               onblur="evalMonto(this,'${code}',${i})"
+               onkeydown="if(event.key==='Enter'){this.blur()}"
+               onfocus="this.select()">
         <select onchange="S.proyectos['${code}'].cajA[${i}].tipo=this.value">
           <option value="liq"${c.tipo!=='inv'?' selected':''}>Líquido</option>
           <option value="inv"${c.tipo==='inv'?' selected':''}>Invertido</option>
@@ -733,6 +836,26 @@ function addCajARow(code){
   if(!S.proyectos[code].cajA)S.proyectos[code].cajA=[];
   S.proyectos[code].cajA.push({cuenta:'',moneda:'USD',monto:0,tipo:'liq'});
   renderCajaAForm();
+}
+
+// ── EVALUADOR DE EXPRESIONES MATEMÁTICAS ─────────────────────────────────────
+function evalMonto(input, code, idx){
+  const raw = input.value.trim();
+  if(!raw){ input.value = 0; return; }
+  try{
+    // Solo permite números, operadores básicos, espacios y puntos/comas decimales
+    const sanitized = raw.replace(/,/g,'.').replace(/[^0-9+\-*/().\s]/g,'');
+    if(!sanitized){ input.value = 0; return; }
+    const result = Function('"use strict"; return (' + sanitized + ')')();
+    if(isNaN(result) || !isFinite(result)){ input.style.borderColor='var(--red)'; return; }
+    const val = Math.round(result * 100) / 100;
+    S.proyectos[code].cajA[idx].monto = val;
+    input.value = val;
+    input.style.borderColor = '';
+    renderCajaAForm();
+  }catch(e){
+    input.style.borderColor = 'var(--red)';
+  }
 }
 
 // ── HISTORIAL FORM ────────────────────────────────────────────────────────────
@@ -889,12 +1012,226 @@ async function checkPw(){
     registerFail(errEl);
   }
 }
+// ══════════════════════════════════════════════════════════════════════════════
+// DEUDA INTEGRAL
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Normaliza empresa → proyecto y caja
+function parseEmpresa(e){
+  if(!e) return {proj:'?',caja:'?'};
+  const u = e.toUpperCase().trim();
+  let proj='?', caja='?';
+  if(u.includes('ICON')||u.includes('ICO')) proj='ICON';
+  else if(u.includes('TRU')||u.includes('BRC')||u.includes('BARILOCHE')) proj='TRU';
+  else if(u.includes('AWY')||u.includes('ARGENWAY')) proj='AWY';
+  else if(u.includes('CUSCO')||u.includes('CUS')) proj='CUS';
+  else if(u.includes('DOMI')) proj='DOM';
+  else if(u.includes('HAMPTON')) proj='HAMPTON BRC';
+  if(u.includes(' A')||u.endsWith(' A')) caja='A';
+  else if(u.includes('PRU')||u.includes(' B')||u.endsWith(' B')) caja='Pru';
+  return {proj, caja};
+}
+
+function deudaToUSD(d){
+  const m = parseFloat(d.monto)||0;
+  if(d.moneda==='ARS'||d.moneda==='PESOS') return m/(S.tcARS_pru||S.tcARS||1100);
+  if(d.moneda==='EUR') return m*(S.tcEUR||1.08);
+  return m;
+}
+
+function getDeudas(){
+  let arr = S.deudas||[];
+  if(deudaFiltro!=='all') arr=arr.filter(d=>d.hoja===deudaFiltro);
+  if(deudaTipo==='prestamo') arr=arr.filter(d=>d.tipo==='Prestamo');
+  else if(deudaTipo==='declaracion') arr=arr.filter(d=>d.tipo!=='Prestamo');
+  const q = document.getElementById('deuda-search')?.value?.toLowerCase()||'';
+  if(q) arr=arr.filter(d=>(d.detalle||'').toLowerCase().includes(q)||(d.desde||'').toLowerCase().includes(q)||(d.hacia||'').toLowerCase().includes(q));
+  return arr;
+}
+
+function setDeudaFiltro(f){
+  deudaFiltro=f;
+  const m={all:'active-all',entre:'active-a',pru:'active-pru'};
+  ['all','entre','pru'].forEach(x=>{const b=document.getElementById('df-'+x);if(b){b.className='pill';if(x===f)b.classList.add(m[x]);}});
+  renderDeuda();
+}
+function setDeudaTipo(t){
+  deudaTipo=t;
+  const m={all:'active-all',prestamo:'active-a',declaracion:'active-pru'};
+  ['all','prestamo','declaracion'].forEach(x=>{const b=document.getElementById('dt-'+x);if(b){b.className='pill';if(x===t)b.classList.add(m[x]);}});
+  renderDeuda();
+}
+
+function renderDeudaMetrics(){
+  const arr=getDeudas();
+  const totalUSD=arr.reduce((s,d)=>s+deudaToUSD(d),0);
+  const porTipo={prestamo:0,decla:0};
+  arr.forEach(d=>{ if(d.tipo==='Prestamo') porTipo.prestamo+=deudaToUSD(d); else porTipo.decla+=deudaToUSD(d); });
+  document.getElementById('deuda-metrics').innerHTML=`
+    <div class="metric"><div class="metric-label">Total deuda (equiv. USD)</div><div class="metric-value">${fUSD(totalUSD)}</div><div class="metric-sub" style="color:var(--text2)">${arr.length} registros</div></div>
+    <div class="metric"><div class="metric-label">Préstamos</div><div class="metric-value sm">${fUSD(porTipo.prestamo)}</div><div class="metric-sub" style="color:var(--text2)">${arr.filter(d=>d.tipo==='Prestamo').length} registros</div></div>
+    <div class="metric"><div class="metric-label">Decl. diferidas</div><div class="metric-value sm">${fUSD(porTipo.decla)}</div><div class="metric-sub" style="color:var(--text2)">${arr.filter(d=>d.tipo!=='Prestamo').length} registros</div></div>`;
+}
+
+function renderDeudaChart(){
+  const arr=getDeudas();
+  // Deuda neta por proyecto: lo que recibe - lo que presta
+  const projs=['ICON','TRU','AWY','CUS','DOM','HAMPTON BRC'];
+  const projColors={'ICON':'#2E75B6','TRU':'#375623','AWY':'#7030A0','CUS':'#C55A11','DOM':'#843C0C','HAMPTON BRC':'#4A4A4A'};
+  const neto={};
+  projs.forEach(p=>neto[p]=0);
+  arr.forEach(d=>{
+    const desde=parseEmpresa(d.desde).proj;
+    const hacia=parseEmpresa(d.hacia).proj;
+    const v=deudaToUSD(d);
+    if(neto[desde]!==undefined) neto[desde]-=v; // presta → activo (le deben)
+    if(neto[hacia]!==undefined) neto[hacia]+=v;  // recibe → pasivo (debe)
+  });
+  const labels=projs.filter(p=>neto[p]!==0);
+  const data=labels.map(p=>neto[p]);
+  const colors=labels.map(p=>data[labels.indexOf(p)]>0?'#E24B4A':'#1D9E75'); // rojo=debe, verde=le deben
+  document.getElementById('deuda-leg').innerHTML=`
+    <div class="legend-item"><div class="legend-dot" style="background:#E24B4A"></div>Debe (pasivo)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#1D9E75"></div>Le deben (activo)</div>`;
+  dC('chart-deuda-neta');
+  CH['chart-deuda-neta']=new Chart(document.getElementById('chart-deuda-neta'),{
+    type:'bar',
+    data:{labels,datasets:[{data,backgroundColor:colors,borderRadius:4,borderSkipped:false}]},
+    options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>{const v=ctx.raw;return(v>0?' Debe: ':' Le deben: ')+fUSD(Math.abs(v));}}}},
+      scales:{x:{ticks:{callback:v=>fUSD(Math.abs(v))},grid:{color:'rgba(128,128,128,.08)'}},y:{grid:{display:false}}}}
+  });
+}
+
+function renderDeudaPares(){
+  const arr=getDeudas();
+  const pares={};
+  arr.forEach(d=>{
+    const a=parseEmpresa(d.desde).proj, b=parseEmpresa(d.hacia).proj;
+    if(a===b) return;
+    const key=[a,b].sort().join('↔');
+    if(!pares[key]) pares[key]={a,b,neto:0};
+    pares[key].neto+=deudaToUSD(d); // b le debe a a
+  });
+  const rows=Object.values(pares).sort((x,y)=>Math.abs(y.neto)-Math.abs(x.neto)).map(p=>{
+    const acreedor=p.neto>0?p.a:p.b;
+    const deudor=p.neto>0?p.b:p.a;
+    return`<tr>
+      <td class="td-name" style="font-size:12px">${acreedor} → ${deudor}</td>
+      <td class="td-r" style="color:var(--red);font-size:12px">${fUSD(Math.abs(p.neto))}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('tabla-pares').innerHTML=rows?`<table><thead><tr><th>Par</th><th style="text-align:right">Saldo neto</th></tr></thead><tbody>${rows}</tbody></table>`:'<p style="font-size:13px;color:var(--text3);padding:8px">Sin datos</p>';
+}
+
+function renderDeudaTabla(){
+  const arr=getDeudas();
+  const tipoBadge=t=>t==='Prestamo'?'<span class="badge" style="background:var(--blue-bg);color:var(--blue-text)">Préstamo</span>':'<span class="badge" style="background:var(--amber-bg);color:var(--amber-text)">Decl. diferida</span>';
+  const hojaBadge=h=>h==='pru'?'<span class="badge badge-pru">Interna Pru</span>':'<span class="badge badge-a">Entre cajas</span>';
+  const rows=arr.map(d=>{
+    const usd=deudaToUSD(d);
+    const montoStr=d.moneda==='ARS'||d.moneda==='PESOS'
+      ?`${fmt(d.monto)} ARS <span class="equiv-usd" style="font-size:11px">${fUSD(usd)}</span>`
+      :fUSD(usd);
+    return`<tr>
+      <td style="font-size:12px;color:var(--text2)">${d.fecha?fDate(d.fecha):'—'}</td>
+      <td class="td-name" style="font-size:12px">${d.detalle||'—'}</td>
+      <td style="font-size:12px">${d.desde||'—'}</td>
+      <td style="font-size:12px;color:var(--text3)">→</td>
+      <td style="font-size:12px">${d.hacia||'—'}</td>
+      <td class="td-r" style="font-size:12px">${montoStr}</td>
+      <td>${tipoBadge(d.tipo)}</td>
+      <td>${hojaBadge(d.hoja)}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('tabla-deuda').innerHTML=rows?`
+    <table><thead><tr>
+      <th>Fecha</th><th>Detalle</th><th>Desde (presta)</th><th></th><th>Hacia (debe)</th>
+      <th style="text-align:right">Monto</th><th>Tipo</th><th>Hoja</th>
+    </tr></thead><tbody>${rows}</tbody></table>`
+    :'<p style="font-size:13px;color:var(--text3);padding:8px">Sin resultados</p>';
+}
+
+function renderDeudaResumenPosicion(){
+  const arr=S.deudas||[];
+  const total=arr.reduce((s,d)=>s+deudaToUSD(d),0);
+  const card=document.getElementById('deuda-resumen-card');
+  const cont=document.getElementById('deuda-resumen-content');
+  if(!arr.length){if(card)card.style.display='none';return;}
+  if(card)card.style.display='block';
+  // Top 3 mayores deudas
+  const top=[...arr].sort((a,b)=>deudaToUSD(b)-deudaToUSD(a)).slice(0,3);
+  const rows=top.map(d=>`<tr>
+    <td class="td-name" style="font-size:12px">${d.detalle}</td>
+    <td style="font-size:12px;color:var(--text2)">${d.desde} → ${d.hacia}</td>
+    <td class="td-r" style="font-size:12px;font-weight:600">${fUSD(deudaToUSD(d))}</td>
+  </tr>`).join('');
+  if(cont) cont.innerHTML=`
+    <div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap">
+      <span style="font-size:13px">Total deuda: <strong>${fUSD(total)}</strong></span>
+      <span style="font-size:13px;color:var(--text2)">${arr.length} registros</span>
+    </div>
+    <table><thead><tr><th>Top deudas</th><th>Partes</th><th style="text-align:right">Monto</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderDeuda(){
+  renderDeudaMetrics();
+  renderDeudaChart();
+  renderDeudaPares();
+  renderDeudaTabla();
+}
+
+// ── IMPORTAR EXCEL DE DEUDAS ─────────────────────────────────────────────────
+function processDeudaFile(file){
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const wb=XLSX.read(e.target.result,{type:'array',cellDates:true});
+      const deudas=[];
+      wb.SheetNames.forEach(sheetName=>{
+        const ws=wb.Sheets[sheetName];
+        const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:false});
+        const hoja=sheetName.toLowerCase().includes('pru')?'pru':'entre';
+        for(let i=1;i<rows.length;i++){
+          const r=rows[i];
+          const fecha=r[1], detalle=r[2], moneda=r[3], desde=r[4], hacia=r[5], montoRaw=r[6], tipo=r[8];
+          if(!desde||!hacia||!montoRaw) continue;
+          let monto=parseFloat(String(montoRaw).replace(/[^0-9.-]/g,''))||0;
+          if(!monto) continue;
+          let fechaStr=null;
+          if(fecha){
+            const d=new Date(fecha);
+            if(!isNaN(d)) fechaStr=d.toISOString().split('T')[0];
+          }
+          // Normalizar empresa BRC → Hampton BRC
+          const normDesde=(desde||'').replace(/BRC A/gi,'HAMPTON BRC A').replace(/\bBRC\b/gi,'HAMPTON BRC');
+          const normHacia=(hacia||'').replace(/BRC A/gi,'HAMPTON BRC A').replace(/\bBRC\b/gi,'HAMPTON BRC');
+          deudas.push({fecha:fechaStr,detalle:detalle||'',moneda:moneda||'USD',desde:normDesde,hacia:normHacia,monto,tipo:tipo||'Prestamo',hoja});
+        }
+      });
+      S.deudas=deudas;
+      const el=document.getElementById('deuda-import-msg');
+      el.className='pru-msg pru-ok';el.style.display='block';
+      el.innerHTML=`<strong>✓ Importado correctamente</strong> — ${deudas.length} registros cargados.<br><small>Guardá para sincronizar con la nube.</small>`;
+      renderDeuda();
+      renderDeudaResumenPosicion();
+    }catch(err){
+      const el=document.getElementById('deuda-import-msg');
+      el.className='pru-msg pru-err';el.style.display='block';
+      el.textContent='Error al procesar: '+err.message;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
 function showTab(name){
-  ['posicion','evolutivo','editar'].forEach((t,i)=>{
+  ['posicion','evolutivo','deuda','editar'].forEach((t,i)=>{
     document.getElementById('tab-'+t).className=t===name?'sv':'sh';
     document.querySelectorAll('.tabs .tab')[i].classList.toggle('active',t===name);
   });
   if(name==='evolutivo'){renderEvoToggles();renderEvolutivo();}
+  if(name==='deuda')renderDeuda();
   if(name==='editar'&&editUnlocked)renderEditForm();
 }
 function renderAll(){
@@ -902,6 +1239,7 @@ function renderAll(){
   document.getElementById('fecha-header').textContent='Datos al '+fDate(S.lastUpdate);
   populateFechaSelector();
   renderMetrics();renderCards();renderCharts();renderTabla();
+  renderDeudaResumenPosicion();
 }
 function editarTitulo(){
   const d=document.getElementById('titulo-display'),inp=document.getElementById('titulo-input');
