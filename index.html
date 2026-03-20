@@ -1219,25 +1219,39 @@ function processDeudaFile(file){
       const deudas=[];
       wb.SheetNames.forEach(sheetName=>{
         const ws=wb.Sheets[sheetName];
-        const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:false});
+        const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true});
         const sn=sheetName.toLowerCase();
-        const hoja=sn.includes('pru')||sn.includes('b ')||sn.includes(' b')?'pru':
+        const hoja=sn.includes('pru')||sn.includes(' b')||sn.endsWith('b')?'pru':
                    sn.includes('interna a')||sn.includes('caja a')||sn.includes('entre proyecto')?'interna':'entre';
         for(let i=1;i<rows.length;i++){
           const r=rows[i];
-          const fecha=r[1], detalle=r[2], moneda=r[3], desde=r[4], hacia=r[5], montoRaw=r[6], tipo=r[8];
-          if(!desde||!hacia||!montoRaw) continue;
-          let monto=parseFloat(String(montoRaw).replace(/[^0-9.-]/g,''))||0;
-          if(!monto) continue;
+          const rawFecha=r[1];
+          const detalle=r[2]!=null?String(r[2]).trim():null;
+          const moneda=r[3]!=null?String(r[3]).trim():'USD';
+          const desde=r[4]!=null?String(r[4]).trim():null;
+          const hacia=r[5]!=null?String(r[5]).trim():null;
+          const montoRaw=r[6];
+          const tipo=r[8]!=null?String(r[8]).trim():'Prestamo';
+          if(!desde||!hacia||montoRaw==null) continue;
+          // Parse monto
+          let monto=0;
+          if(typeof montoRaw==='number') monto=montoRaw;
+          else monto=parseFloat(String(montoRaw).replace(/[^0-9.-]/g,''))||0;
+          if(!monto||monto<=0) continue;
+          // Parse fecha
           let fechaStr=null;
-          if(fecha){
-            const d=new Date(fecha);
+          if(rawFecha instanceof Date&&!isNaN(rawFecha)){
+            fechaStr=rawFecha.toISOString().split('T')[0];
+          } else if(typeof rawFecha==='number'&&rawFecha>40000){
+            const d=new Date(Math.round((rawFecha-25569)*86400*1000));
+            fechaStr=d.toISOString().split('T')[0];
+          } else if(typeof rawFecha==='string'&&rawFecha.trim()){
+            const d=new Date(rawFecha);
             if(!isNaN(d)) fechaStr=d.toISOString().split('T')[0];
           }
-          // Normalizar empresa BRC → Hampton BRC
-          const normDesde=(desde||'').replace(/BRC A/gi,'HAMPTON BRC A').replace(/\bBRC\b/gi,'HAMPTON BRC');
-          const normHacia=(hacia||'').replace(/BRC A/gi,'HAMPTON BRC A').replace(/\bBRC\b/gi,'HAMPTON BRC');
-          deudas.push({fecha:fechaStr,detalle:detalle||'',moneda:moneda||'USD',desde:normDesde,hacia:normHacia,monto,tipo:tipo||'Prestamo',hoja});
+          const normD=desde.replace(/\bBRC\b/gi,'HAMPTON BRC');
+          const normH=hacia.replace(/\bBRC\b/gi,'HAMPTON BRC');
+          deudas.push({fecha:fechaStr,detalle:detalle||'',moneda,desde:normD,hacia:normH,monto,tipo,hoja});
         }
       });
       S.deudas=deudas;
