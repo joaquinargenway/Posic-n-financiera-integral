@@ -310,25 +310,55 @@ input:focus,select:focus{outline:none;border-color:var(--blue);}
   <!-- ══ DEUDA INTEGRAL ══ -->
   <div id="tab-deuda" class="sh">
 
-    <!-- Filtros -->
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <!-- Fila 1: filtro hoja + tipo -->
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
       <div class="filter-pills" style="margin-bottom:0">
         <button class="pill active-all" id="df-all"     onclick="setDeudaFiltro('all')">Todas</button>
         <button class="pill"            id="df-entre"   onclick="setDeudaFiltro('entre')">Entre cajas</button>
         <button class="pill"            id="df-pru"     onclick="setDeudaFiltro('pru')">Interna Pru</button>
         <button class="pill"            id="df-interna" onclick="setDeudaFiltro('interna')">Interna A</button>
       </div>
-      <div class="filter-pills" style="margin-bottom:0;margin-left:8px">
+      <div class="filter-pills" style="margin-bottom:0;margin-left:4px">
         <button class="pill active-all" id="dt-all"   onclick="setDeudaTipo('all')">Todos los tipos</button>
         <button class="pill"            id="dt-pres"  onclick="setDeudaTipo('prestamo')">Préstamos</button>
         <button class="pill"            id="dt-decla" onclick="setDeudaTipo('declaracion')">Decl. diferidas</button>
       </div>
     </div>
 
-    <!-- Métricas resumen -->
+    <!-- Fila 2: filtro proyecto -->
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px;flex-wrap:wrap">
+      <span style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;flex-shrink:0">Proyecto:</span>
+      <div class="filter-pills" style="margin-bottom:0">
+        <button class="pill active-all" id="dp-all"  onclick="setDeudaProj('all')">Todos</button>
+        <button class="pill" id="dp-IC"   onclick="setDeudaProj('IC')"   style="border-left:3px solid var(--ic)">ICON</button>
+        <button class="pill" id="dp-TRU"  onclick="setDeudaProj('TRU')"  style="border-left:3px solid var(--tru)">TRU</button>
+        <button class="pill" id="dp-AWY"  onclick="setDeudaProj('AWY')"  style="border-left:3px solid var(--awy)">AWY+AW</button>
+        <button class="pill" id="dp-CUZ"  onclick="setDeudaProj('CUZ')"  style="border-left:3px solid var(--cuz)">CUS</button>
+        <button class="pill" id="dp-DOMI" onclick="setDeudaProj('DOMI')" style="border-left:3px solid var(--domi)">DOM</button>
+      </div>
+    </div>
+
+    <!-- Métricas -->
     <div class="metrics-top" id="deuda-metrics" style="margin-bottom:12px"></div>
 
-    <!-- Gráfico mapa de deudas + saldo neto por proyecto -->
+    <!-- Vista proyecto seleccionado -->
+    <div id="deuda-proj-detail" style="display:none;margin-bottom:12px">
+      <div class="card">
+        <div class="card-title" id="deuda-proj-title">Composición de deuda</div>
+        <div class="grid2" style="margin-bottom:0">
+          <div>
+            <div style="font-size:11px;font-weight:600;color:var(--red);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Le debe a →</div>
+            <div id="deuda-proj-pasivo"></div>
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:600;color:var(--green);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Le deben ←</div>
+            <div id="deuda-proj-activo"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Gráfico + pares -->
     <div class="grid2">
       <div class="card">
         <div class="card-title">Deuda neta por proyecto (USD)</div>
@@ -522,7 +552,7 @@ const PRU_MAP    = { Tru:'TRU', Ico:'IC', Domi:'DOMI', Cuzco:'CUZ', Awy:'AWY' };
 const PRU_IGNORE = ['Banco E1','Banco E2'];
 
 let filtro = 'all', evoCaja = 'all', evoGrupo = 'total', evoProj = null, posFecha = null,
-    deudaFiltro = 'all', deudaTipo = 'all', CH = {};
+    deudaFiltro = 'all', deudaTipo = 'all', deudaProj = 'all', CH = {};
 
 const DEFAULT_S = {
   lastUpdate:'2026-03-18', titulo:'Reporte Diario de Cajas', tcARS:1100, tcARS_pru:1100, tcEUR:1.08,
@@ -1043,14 +1073,96 @@ function deudaToUSD(d){
 
 function getDeudas(){
   let arr = S.deudas||[];
-  if(deudaFiltro==='entre')   arr=arr.filter(d=>d.hoja==='entre');
+  if(deudaFiltro==='entre')    arr=arr.filter(d=>d.hoja==='entre');
   else if(deudaFiltro==='pru') arr=arr.filter(d=>d.hoja==='pru');
   else if(deudaFiltro==='interna') arr=arr.filter(d=>d.hoja==='interna');
-  if(deudaTipo==='prestamo') arr=arr.filter(d=>d.tipo==='Prestamo');
+  if(deudaTipo==='prestamo')   arr=arr.filter(d=>d.tipo==='Prestamo');
   else if(deudaTipo==='declaracion') arr=arr.filter(d=>d.tipo!=='Prestamo');
+  // Filter by project — include rows where project appears as acreedor OR deudor
+  if(deudaProj!=='all'){
+    const projName = PROJ_NAMES[deudaProj]||deudaProj;
+    arr=arr.filter(d=>{
+      const dsd=parseEmpresa(d.desde).proj;
+      const hac=parseEmpresa(d.hacia).proj;
+      // Match against both full name and code
+      const projAlias = deudaProj==='IC'?'ICON':deudaProj==='CUZ'?'CUS':deudaProj==='DOMI'?'DOM':deudaProj;
+      return dsd===projAlias||hac===projAlias||dsd===deudaProj||hac===deudaProj;
+    });
+  }
   const q = document.getElementById('deuda-search')?.value?.toLowerCase()||'';
   if(q) arr=arr.filter(d=>(d.detalle||'').toLowerCase().includes(q)||(d.desde||'').toLowerCase().includes(q)||(d.hacia||'').toLowerCase().includes(q));
   return arr;
+}
+
+function setDeudaProj(p){
+  deudaProj=p;
+  // Update pills
+  ['all','IC','TRU','AWY','CUZ','DOMI'].forEach(x=>{
+    const b=document.getElementById('dp-'+x);
+    if(!b)return;
+    b.className='pill';
+    if(x===p) b.classList.add('active-all');
+    // Restore border-left color
+    const borderMap={IC:'var(--ic)',TRU:'var(--tru)',AWY:'var(--awy)',CUZ:'var(--cuz)',DOMI:'var(--domi)'};
+    if(borderMap[x]) b.style.borderLeft=`3px solid ${borderMap[x]}`;
+  });
+  // Show/hide project detail panel
+  const panel=document.getElementById('deuda-proj-detail');
+  if(p==='all'){
+    if(panel)panel.style.display='none';
+  } else {
+    if(panel)panel.style.display='block';
+    renderDeudaProjDetail(p);
+  }
+  renderDeuda();
+}
+
+function renderDeudaProjDetail(projCode){
+  const projAlias = projCode==='IC'?'ICON':projCode==='CUZ'?'CUS':projCode==='DOMI'?'DOM':projCode;
+  const all = S.deudas||[];
+  // Rows where this project OWES (hacia = proj → es deudor)
+  const pasivo = all.filter(d=>{ const h=parseEmpresa(d.hacia).proj; return h===projAlias||h===projCode; });
+  // Rows where this project IS OWED (desde = proj → es acreedor)
+  const activo = all.filter(d=>{ const h=parseEmpresa(d.desde).proj; return h===projAlias||h===projCode; });
+
+  const totalPasivo=pasivo.reduce((s,d)=>s+deudaToUSD(d),0);
+  const totalActivo=activo.reduce((s,d)=>s+deudaToUSD(d),0);
+  const neto=totalActivo-totalPasivo; // positivo = le deben más de lo que debe
+
+  const projName=PROJ_NAMES[projCode]||projCode;
+  const cls=PROJ_CLS[projCode]||'ic';
+  document.getElementById('deuda-proj-title').innerHTML=
+    `<span style="color:var(--${cls})">${projName}</span> — composición de deuda &nbsp;
+     <span style="font-size:12px;font-weight:normal;color:${neto>=0?'var(--green)':'var(--red)'}">
+       Posición neta: ${neto>=0?'le deben ':'debe '}<strong>${fUSD(Math.abs(neto))}</strong>
+     </span>`;
+
+  function makeRows(arr, role){
+    if(!arr.length) return '<p style="font-size:12px;color:var(--text3);padding:4px 0">Sin registros</p>';
+    return arr.sort((a,b)=>deudaToUSD(b)-deudaToUSD(a)).map(d=>{
+      const contraparte = role==='pasivo' ? d.desde : d.hacia;
+      const tipoBadge=d.tipo==='Prestamo'
+        ?'<span class="badge" style="background:var(--blue-bg);color:var(--blue-text);font-size:10px">Prést.</span>'
+        :'<span class="badge" style="background:var(--amber-bg);color:var(--amber-text);font-size:10px">Decl.</span>';
+      const cajaBadge=d.hoja==='pru'?'<span class="badge badge-pru" style="font-size:10px">Pru</span>':
+                      d.hoja==='interna'?'<span class="badge badge-a" style="font-size:10px">A</span>':
+                      '<span class="badge" style="background:var(--bg2);font-size:10px">Mix</span>';
+      return`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-size:12px;font-weight:500">${contraparte}</div>
+          <div style="font-size:11px;color:var(--text2)">${d.detalle||'—'} &nbsp;${tipoBadge} ${cajaBadge}</div>
+        </div>
+        <div style="font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;
+          color:${role==='pasivo'?'var(--red)':'var(--green)'}">${fUSD(deudaToUSD(d))}</div>
+      </div>`;
+    }).join('')+
+    `<div style="display:flex;justify-content:space-between;padding:8px 0;font-size:13px;font-weight:700;border-top:2px solid var(--border)">
+      <span>Total</span><span style="color:${role==='pasivo'?'var(--red)':'var(--green)'}">${fUSD(role==='pasivo'?totalPasivo:totalActivo)}</span>
+    </div>`;
+  }
+
+  document.getElementById('deuda-proj-pasivo').innerHTML=makeRows(pasivo,'pasivo');
+  document.getElementById('deuda-proj-activo').innerHTML=makeRows(activo,'activo');
 }
 
 function setDeudaFiltro(f){
