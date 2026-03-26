@@ -227,6 +227,11 @@ input:focus,select:focus{outline:none;border-color:var(--blue);}
         <button class="pill"            id="f-a"    onclick="setFiltro('a')">Caja A</button>
         <button class="pill"            id="f-pru"  onclick="setFiltro('pru')">Caja Pru</button>
       </div>
+      <div class="filter-pills" style="margin-bottom:0;margin-left:4px">
+        <button class="pill active-all" id="fg-all"   onclick="setFiltroGrupo('all')">Todos los proyectos</button>
+        <button class="pill"            id="fg-arg"   onclick="setFiltroGrupo('arg')" style="border-left:3px solid #2E75B6">🇦🇷 Caja Argentina</button>
+        <button class="pill"            id="fg-intl"  onclick="setFiltroGrupo('intl')" style="border-left:3px solid #C55A11">🌎 Caja Internacional</button>
+      </div>
       <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
         <label style="font-size:12px;color:var(--text2)">Fecha:</label>
         <select id="pos-fecha-sel" onchange="setPosfecha(this.value)"
@@ -236,8 +241,7 @@ input:focus,select:focus{outline:none;border-color:var(--blue);}
     </div>
     <div class="metrics-top" id="metrics-top"></div>
     <div class="metrics-var"  id="metrics-var"></div>
-    <div class="proj-grid"   id="cards-row1"></div>
-    <div class="proj-grid-2" id="cards-row2"></div>
+    <div id="cards-grid" class="proj-grid"></div>
     <div class="grid2">
       <div class="card">
         <div class="card-title">Distribución por proyecto</div>
@@ -551,7 +555,7 @@ const PROJ_CLS    = { IC:'ic', TRU:'tru', AWY:'awy', CUZ:'cuz', DOMI:'domi' };
 const PRU_MAP    = { Tru:'TRU', Ico:'IC', Domi:'DOMI', Cuzco:'CUZ', Awy:'AWY' };
 const PRU_IGNORE = ['Banco E1','Banco E2'];
 
-let filtro = 'all', evoCaja = 'all', evoGrupo = 'total', evoProj = null, posFecha = null,
+let filtro = 'all', filtroGrupo = 'all', evoCaja = 'all', evoGrupo = 'total', evoProj = null, posFecha = null,
     deudaFiltro = 'all', deudaTipo = 'all', deudaProj = 'all', CH = {};
 
 const DEFAULT_S = {
@@ -718,7 +722,34 @@ function projFiltered(code){
   if(filtro==='pru')return{liq:t.cajPru_liq,inv:t.cajPru_inv,total:t.cajPru};
   return{liq:t.liq,inv:t.inv,total:t.total};
 }
-function globalCalc(){let liq=0,inv=0;PROJS.forEach(c=>{const f=projFiltered(c);liq+=f.liq;inv+=f.inv;});return{liq,inv,total:liq+inv};}
+// Agrupación regional
+const GRUPOS_REGION = {
+  all:  { label:'Todos',             projs:['IC','TRU','AWY','CUZ','DOMI'] },
+  arg:  { label:'🇦🇷 Caja Argentina',  projs:['IC','TRU','AWY'] },
+  intl: { label:'🌎 Caja Internacional', projs:['CUZ','DOMI'] },
+};
+
+function getProjsActivos(){ return GRUPOS_REGION[filtroGrupo]?.projs || PROJS; }
+
+function setFiltroGrupo(g){
+  filtroGrupo=g;
+  ['all','arg','intl'].forEach(x=>{
+    const b=document.getElementById('fg-'+x); if(!b)return;
+    b.className='pill';
+    if(x===g) b.classList.add('active-all');
+    if(x==='arg')  b.style.borderLeft='3px solid #2E75B6';
+    if(x==='intl') b.style.borderLeft='3px solid #C55A11';
+  });
+  renderMetrics(); renderCards(); renderCharts(); renderTabla();
+  renderDeudaResumenPosicion();
+}
+
+function globalCalc(){
+  const projs=getProjsActivos();
+  let liq=0,inv=0;
+  projs.forEach(c=>{const f=projFiltered(c);liq+=f.liq;inv+=f.inv;});
+  return{liq,inv,total:liq+inv};
+}
 function calcVars(){
   const h=S.historico||[];if(h.length<2)return{d:null,ma7:null,ma30:null};
   const vars=[];
@@ -744,6 +775,7 @@ function renderMetrics(){
 
 // ── RENDER: CARDS ────────────────────────────────────────────────────────────
 function renderCards(){
+  const projs = getProjsActivos();
   function card(code){
     const t=projTotals(code),f=projFiltered(code),cls=PROJ_CLS[code];
     const sA=filtro==='all'||filtro==='a', sP=filtro==='all'||filtro==='pru';
@@ -753,16 +785,19 @@ function renderCards(){
     if(sP){rows+=`<div class="proj-row"><span class="proj-row-lbl"><span class="badge badge-pru">Caja Pru</span></span><span class="proj-row-val">${fUSD(t.cajPru)}</span></div><div class="proj-sub">Liq: ${fUSD(t.cajPru_liq)}${t.cajPru_inv>0?' · Inv: '+fUSD(t.cajPru_inv):''}</div>`;}
     return`<div class="proj-card ${cls}"><div class="proj-name ${cls}">${PROJ_NAMES[code]}</div><div class="proj-total">${fUSD(f.total)}</div>${rows}</div>`;
   }
-  document.getElementById('cards-row1').innerHTML=['IC','TRU','AWY'].map(card).join('');
-  document.getElementById('cards-row2').innerHTML=['CUZ','DOMI'].map(card).join('');
+  // Layout: 3 cols si hay 3+, 2 cols si hay 2, 1 si hay 1
+  const grid=document.getElementById('cards-grid');
+  grid.style.gridTemplateColumns=projs.length>=3?'repeat(3,1fr)':projs.length===2?'1fr 1fr':'1fr';
+  grid.innerHTML=projs.map(card).join('');
 }
 
 // ── RENDER: CHARTS ────────────────────────────────────────────────────────────
 function dC(id){if(CH[id]){CH[id].destroy();delete CH[id];}}
 function renderCharts(){
-  const pdata=PROJS.map(c=>projFiltered(c).total),pcols=PROJS.map(c=>PROJ_COLORS[c]),ptot=pdata.reduce((s,v)=>s+v,0);
-  document.getElementById('leg-proj').innerHTML=PROJS.map((c,i)=>`<div class="legend-item"><div class="legend-dot" style="background:${pcols[i]}"></div>${PROJ_NAMES[c]}: ${ptot>0?(pdata[i]/ptot*100).toFixed(0):0}%</div>`).join('');
-  dC('chart-proj');CH['chart-proj']=new Chart(document.getElementById('chart-proj'),{type:'doughnut',data:{labels:PROJS.map(c=>PROJ_NAMES[c]),datasets:[{data:pdata,backgroundColor:pcols,borderWidth:0,hoverOffset:4}]},options:{responsive:true,maintainAspectRatio:false,cutout:'62%',plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>' '+fUSD(ctx.raw)}}}}});
+  const projs=getProjsActivos();
+  const pdata=projs.map(c=>projFiltered(c).total),pcols=projs.map(c=>PROJ_COLORS[c]),ptot=pdata.reduce((s,v)=>s+v,0);
+  document.getElementById('leg-proj').innerHTML=projs.map((c,i)=>`<div class="legend-item"><div class="legend-dot" style="background:${pcols[i]}"></div>${PROJ_NAMES[c]}: ${ptot>0?(pdata[i]/ptot*100).toFixed(0):0}%</div>`).join('');
+  dC('chart-proj');CH['chart-proj']=new Chart(document.getElementById('chart-proj'),{type:'doughnut',data:{labels:projs.map(c=>PROJ_NAMES[c]),datasets:[{data:pdata,backgroundColor:pcols,borderWidth:0,hoverOffset:4}]},options:{responsive:true,maintainAspectRatio:false,cutout:'62%',plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>' '+fUSD(ctx.raw)}}}}});
   const g=globalCalc(),fdata=[g.liq,g.inv],fcols=['#1D9E75','#378ADD'];
   document.getElementById('leg-fondos').innerHTML=['Disponible','Invertido'].map((l,i)=>`<div class="legend-item"><div class="legend-dot" style="background:${fcols[i]}"></div>${l}: ${fUSD(fdata[i])}</div>`).join('');
   dC('chart-fondos');CH['chart-fondos']=new Chart(document.getElementById('chart-fondos'),{type:'doughnut',data:{labels:['Disponible','Invertido'],datasets:[{data:fdata,backgroundColor:fcols,borderWidth:0,hoverOffset:4}]},options:{responsive:true,maintainAspectRatio:false,cutout:'62%',plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>' '+fUSD(ctx.raw)}}}}});
@@ -771,7 +806,8 @@ function renderCharts(){
 // ── RENDER: TABLE ─────────────────────────────────────────────────────────────
 function renderTabla(){
   const sA=filtro==='all'||filtro==='a',sP=filtro==='all'||filtro==='pru';
-  let rows=PROJS.map(code=>{
+  const projs=getProjsActivos();
+  let rows=projs.map(code=>{
     const t=projTotals(code),f=projFiltered(code),cls=PROJ_CLS[code];
     return`<tr><td class="td-name" style="border-left:3px solid var(--${cls})">${PROJ_NAMES[code]}</td>
       ${sA?`<td class="td-r">${fUSD(t.cajA_liq)}</td><td class="td-r">${fUSD(t.cajA_inv)}</td><td class="td-r"><span class="badge badge-a">${fUSD(t.cajA)}</span></td>`:''}
@@ -779,7 +815,7 @@ function renderTabla(){
       <td class="td-r" style="font-weight:600">${fUSD(f.total)}</td></tr>`;
   }).join('');
   const g=globalCalc();
-  rows+=`<tr style="border-top:2px solid var(--border);font-weight:600"><td>TOTAL</td>${sA?'<td colspan="3"></td>':''}${sP?'<td colspan="3"></td>':''}<td class="td-r">${fUSD(g.total)}</td></tr>`;
+  rows+=`<tr style="border-top:2px solid var(--border);font-weight:600"><td>TOTAL ${filtroGrupo!=='all'?GRUPOS_REGION[filtroGrupo].label:''}</td>${sA?'<td colspan="3"></td>':''}${sP?'<td colspan="3"></td>':''}<td class="td-r">${fUSD(g.total)}</td></tr>`;
   const thA=sA?'<th style="text-align:right"><span class="badge badge-a">A</span> Liq.</th><th style="text-align:right">Inv.</th><th style="text-align:right">Total A</th>':'';
   const thP=sP?'<th style="text-align:right"><span class="badge badge-pru">Pru</span> Liq.</th><th style="text-align:right">Inv.</th><th style="text-align:right">Total Pru</th>':'';
   document.getElementById('tabla-posicion').innerHTML=`<table><thead><tr><th>Proyecto</th>${thA}${thP}<th style="text-align:right">Total</th></tr></thead><tbody>${rows}</tbody></table>`;
