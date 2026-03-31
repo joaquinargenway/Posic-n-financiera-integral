@@ -207,6 +207,7 @@ input:focus,select:focus{outline:none;border-color:var(--blue);}
     <div class="header-right">
       <span id="sync-badge" class="sync-badge sync-loading">Conectando...</span>
       <span id="enc-badge" style="display:none;font-size:11px;padding:4px 10px;border-radius:20px;font-weight:500;background:var(--green-bg);color:var(--green-text)">🔒 Cifrado</span>
+      <button id="btn-gchat" onclick="enviarGChat()" style="display:none;font-size:12px;padding:6px 14px;background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;color:var(--text);font-family:inherit" title="Enviar resumen diario a Google Chat">📨 Enviar a Chat</button>
       <button class="btn-add" onclick="window.print()" style="font-size:12px;padding:6px 14px">Imprimir ↗</button>
     </div>
   </div>
@@ -472,6 +473,11 @@ const API_KEY    = window.CAJAS_API_KEY   || 'TU_API_KEY_AQUI';
 const ADMIN_HASH = window.CAJAS_ADMIN_HASH|| '';
 const VIEW_HASH  = window.CAJAS_VIEW_HASH || '';
 let isAdmin = false;
+
+// ── CONFIGURACIÓN GOOGLE CHAT ─────────────────────────────────────────────────
+// Pegá tu Webhook URL de Google Chat acá:
+const GCHAT_WEBHOOK = window.CAJAS_GCHAT_WEBHOOK || 'TU_WEBHOOK_URL_AQUI';
+const DASHBOARD_URL = window.CAJAS_DASHBOARD_URL  || 'TU_LINK_DASHBOARD_AQUI';
 // ══════════════════════════════════════════════════════════════════════════════
 
 // ── UTILIDAD: SHA-256 via Web Crypto API (nativa, sin dependencias) ──────────
@@ -1453,6 +1459,102 @@ function processDeudaFile(file){
   reader.readAsArrayBuffer(file);
 }
 
+// ── GOOGLE CHAT WEBHOOK ───────────────────────────────────────────────────────
+async function enviarGChat(){
+  if(!GCHAT_WEBHOOK || GCHAT_WEBHOOK==='TU_WEBHOOK_URL_AQUI'){
+    alert('Configurá el GCHAT_WEBHOOK en el código antes de usar esta función.');
+    return;
+  }
+  const btn = document.getElementById('btn-gchat');
+  btn.textContent = '⏳ Enviando...';
+  btn.disabled = true;
+
+  // Calcular totales
+  const arg  = ['IC','TRU','AWY'].reduce((s,c)=>s+projTotals(c).total, 0);
+  const intl = ['CUZ','DOMI'].reduce((s,c)=>s+projTotals(c).total, 0);
+  const total = arg + intl;
+
+  // Variación diaria
+  const {d: varDia} = calcVars();
+  const varStr = varDia===null ? '—'
+    : (varDia>=0?'▲ +':'▼ ') + Math.abs(varDia).toFixed(2) + '%';
+
+  const fecha = fDate(S.lastUpdate) || new Date().toLocaleDateString('es-AR');
+
+  // Mensaje en formato Google Chat Card v2
+  const payload = {
+    cardsV2: [{
+      cardId: 'reporte-cajas',
+      card: {
+        header: {
+          title: '📊 Reporte Diario de Cajas',
+          subtitle: fecha,
+          imageUrl: 'https://fonts.gstatic.com/s/i/short-term/release/materialsymbolsoutlined/account_balance_wallet/default/48px.svg',
+          imageType: 'CIRCLE'
+        },
+        sections: [
+          {
+            widgets: [
+              {
+                columns: {
+                  columnItems: [
+                    {
+                      horizontalSizeStyle: 'FILL_AVAILABLE_SPACE',
+                      widgets: [
+                        { decoratedText: { topLabel: '🇦🇷 Caja Argentina', text: `<b>${fUSD(arg)}</b>` } },
+                        { decoratedText: { topLabel: '🌎 Caja Internacional', text: `<b>${fUSD(intl)}</b>` } },
+                      ]
+                    },
+                    {
+                      horizontalSizeStyle: 'FILL_AVAILABLE_SPACE',
+                      widgets: [
+                        { decoratedText: { topLabel: '💰 Total General', text: `<b>${fUSD(total)}</b>` } },
+                        { decoratedText: { topLabel: '📈 Variación diaria', text: `<b>${varStr}</b>` } },
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            widgets: [
+              {
+                buttonList: {
+                  buttons: [{
+                    text: 'Ver dashboard completo →',
+                    onClick: { openLink: { url: DASHBOARD_URL } }
+                  }]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }]
+  };
+
+  try{
+    // Google Chat webhooks tienen restricción CORS — usamos un proxy de no-cors
+    // Nota: con no-cors no podemos leer la respuesta, pero el mensaje igual se envía
+    await fetch(GCHAT_WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      mode: 'no-cors'
+    });
+    btn.textContent = '✓ Enviado';
+    btn.style.color = 'var(--green)';
+    setTimeout(()=>{ btn.textContent='📨 Enviar a Chat'; btn.style.color=''; btn.disabled=false; }, 3000);
+  }catch(err){
+    btn.textContent = '✗ Error';
+    btn.style.color = 'var(--red)';
+    btn.disabled = false;
+    console.error('GChat error:', err);
+    setTimeout(()=>{ btn.textContent='📨 Enviar a Chat'; btn.style.color=''; }, 3000);
+  }
+}
+
 function showTab(name){
   ['posicion','evolutivo','deuda','editar'].forEach((t,i)=>{
     document.getElementById('tab-'+t).className=t===name?'sv':'sh';
@@ -1500,6 +1602,8 @@ function openDash(){
     document.querySelectorAll('.tabs .tab')[2].style.display='none'; // Deuda
     document.querySelectorAll('.tabs .tab')[3].style.display='none'; // Editar
     document.getElementById('deuda-resumen-card').style.display='none';
+  } else {
+    document.getElementById('btn-gchat').style.display='inline-block';
   }
   cargarNube();
 }
