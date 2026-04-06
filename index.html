@@ -320,6 +320,7 @@ input:focus,select:focus{outline:none;border-color:var(--blue);}
       <div class="filter-pills" style="margin-bottom:0">
         <button class="pill active-all" id="df-all"     onclick="setDeudaFiltro('all')">Todas</button>
         <button class="pill"            id="df-entre"   onclick="setDeudaFiltro('entre')">Entre cajas</button>
+        <button class="pill"            id="df-apru"    onclick="setDeudaFiltro('apru')" style="border-left:3px solid var(--purple)">A ↔ Pru</button>
         <button class="pill"            id="df-pru"     onclick="setDeudaFiltro('pru')">Interna Pru</button>
         <button class="pill"            id="df-interna" onclick="setDeudaFiltro('interna')">Interna A</button>
       </div>
@@ -331,7 +332,7 @@ input:focus,select:focus{outline:none;border-color:var(--blue);}
     </div>
 
     <!-- Fila 2: filtro proyecto -->
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">
       <span style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;flex-shrink:0">Proyecto:</span>
       <div class="filter-pills" style="margin-bottom:0">
         <button class="pill active-all" id="dp-all"  onclick="setDeudaProj('all')">Todos</button>
@@ -341,6 +342,15 @@ input:focus,select:focus{outline:none;border-color:var(--blue);}
         <button class="pill" id="dp-CUZ"  onclick="setDeudaProj('CUZ')"  style="border-left:3px solid var(--cuz)">CUS</button>
         <button class="pill" id="dp-DOMI" onclick="setDeudaProj('DOMI')" style="border-left:3px solid var(--domi)">DOM</button>
       </div>
+    </div>
+
+    <!-- Fila 3: filtro par (visible solo cuando hay filtro A↔Pru o proyecto) -->
+    <div id="deuda-par-row" style="display:none;align-items:center;gap:6px;margin-bottom:14px;flex-wrap:wrap">
+      <span style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;flex-shrink:0">Par específico:</span>
+      <select id="deuda-par-sel" onchange="setDeudaPar(this.value)"
+              style="font-size:12px;padding:5px 12px;border:1px solid var(--border2);border-radius:20px;background:var(--bg);color:var(--text);cursor:pointer">
+        <option value="all">Todos los pares</option>
+      </select>
     </div>
 
     <!-- Métricas -->
@@ -561,7 +571,7 @@ const PRU_MAP    = { Tru:'TRU', Ico:'IC', Domi:'DOMI', Cuzco:'CUZ', Awy:'AWY' };
 const PRU_IGNORE = ['Banco E1','Banco E2'];
 
 let filtro = 'all', filtroGrupo = 'all', evoCaja = 'all', evoGrupo = 'total', evoProj = null, posFecha = null,
-    deudaFiltro = 'all', deudaTipo = 'all', deudaProj = 'all', CH = {};
+    deudaFiltro = 'all', deudaTipo = 'all', deudaProj = 'all', deudaPar = 'all', CH = {};
 
 const DEFAULT_S = {
   lastUpdate:'2026-03-18', titulo:'Reporte Diario de Cajas', tcARS:1100, tcARS_pru:1100, tcEUR:1.08,
@@ -1112,22 +1122,41 @@ function deudaToUSD(d){
   return m;
 }
 
+function getCajaType(empresa){
+  const u=(empresa||'').toUpperCase();
+  if(u.includes(' B')||u.endsWith('B')||u.includes('PRU')) return 'pru';
+  if(u.includes(' A')||u.endsWith('A')) return 'a';
+  return 'unknown';
+}
+
 function getDeudas(){
   let arr = S.deudas||[];
   if(deudaFiltro==='entre')    arr=arr.filter(d=>d.hoja==='entre');
   else if(deudaFiltro==='pru') arr=arr.filter(d=>d.hoja==='pru');
   else if(deudaFiltro==='interna') arr=arr.filter(d=>d.hoja==='interna');
+  else if(deudaFiltro==='apru'){
+    // Movimientos donde uno es caja A y el otro es caja Pru (cualquier hoja)
+    arr=arr.filter(d=>{
+      const ct1=getCajaType(d.desde), ct2=getCajaType(d.hacia);
+      return (ct1==='a'&&ct2==='pru')||(ct1==='pru'&&ct2==='a');
+    });
+  }
   if(deudaTipo==='prestamo')   arr=arr.filter(d=>d.tipo==='Prestamo');
   else if(deudaTipo==='declaracion') arr=arr.filter(d=>d.tipo!=='Prestamo');
-  // Filter by project — include rows where project appears as acreedor OR deudor
+  // Filter by project
   if(deudaProj!=='all'){
-    const projName = PROJ_NAMES[deudaProj]||deudaProj;
+    const alias=deudaProj==='IC'?'ICON':deudaProj==='CUZ'?'CUS':deudaProj==='DOMI'?'DOM':deudaProj;
     arr=arr.filter(d=>{
-      const dsd=parseEmpresa(d.desde).proj;
-      const hac=parseEmpresa(d.hacia).proj;
-      // Match against both full name and code
-      const projAlias = deudaProj==='IC'?'ICON':deudaProj==='CUZ'?'CUS':deudaProj==='DOMI'?'DOM':deudaProj;
-      return dsd===projAlias||hac===projAlias||dsd===deudaProj||hac===deudaProj;
+      const dsd=parseEmpresa(d.desde).proj, hac=parseEmpresa(d.hacia).proj;
+      return dsd===alias||hac===alias||dsd===deudaProj||hac===deudaProj;
+    });
+  }
+  // Filter by specific pair
+  if(deudaPar&&deudaPar!=='all'){
+    arr=arr.filter(d=>{
+      const key=`${d.desde}|||${d.hacia}`;
+      const keyRev=`${d.hacia}|||${d.desde}`;
+      return key===deudaPar||keyRev===deudaPar;
     });
   }
   const q = document.getElementById('deuda-search')?.value?.toLowerCase()||'';
@@ -1136,14 +1165,13 @@ function getDeudas(){
 }
 
 function setDeudaProj(p){
-  deudaProj=p;
+  deudaProj=p; deudaPar='all';
   // Update pills
   ['all','IC','TRU','AWY','CUZ','DOMI'].forEach(x=>{
     const b=document.getElementById('dp-'+x);
     if(!b)return;
     b.className='pill';
     if(x===p) b.classList.add('active-all');
-    // Restore border-left color
     const borderMap={IC:'var(--ic)',TRU:'var(--tru)',AWY:'var(--awy)',CUZ:'var(--cuz)',DOMI:'var(--domi)'};
     if(borderMap[x]) b.style.borderLeft=`3px solid ${borderMap[x]}`;
   });
@@ -1155,6 +1183,7 @@ function setDeudaProj(p){
     if(panel)panel.style.display='block';
     renderDeudaProjDetail(p);
   }
+  populateParSelector();
   renderDeuda();
 }
 
@@ -1207,10 +1236,57 @@ function renderDeudaProjDetail(projCode){
 }
 
 function setDeudaFiltro(f){
-  deudaFiltro=f;
-  const m={all:'active-all',entre:'active-a',pru:'active-pru',interna:'active-a'};
-  ['all','entre','pru','interna'].forEach(x=>{const b=document.getElementById('df-'+x);if(b){b.className='pill';if(x===f)b.classList.add(m[x]);}});
+  deudaFiltro=f; deudaPar='all';
+  const m={all:'active-all',entre:'active-a',apru:'active-a',pru:'active-pru',interna:'active-a'};
+  ['all','entre','apru','pru','interna'].forEach(x=>{
+    const b=document.getElementById('df-'+x);if(!b)return;
+    b.className='pill';if(x===f)b.classList.add(m[x]);
+    if(x==='apru') b.style.borderLeft='3px solid var(--purple)';
+  });
+  populateParSelector();
   renderDeuda();
+}
+
+function setDeudaPar(v){
+  deudaPar=v;
+  renderDeuda();
+}
+
+function populateParSelector(){
+  const parRow=document.getElementById('deuda-par-row');
+  const sel=document.getElementById('deuda-par-sel');
+  if(!parRow||!sel) return;
+
+  // Show par selector when A↔Pru filter is active or a project is selected
+  const showPar = deudaFiltro==='apru' || deudaProj!=='all';
+  parRow.style.display = showPar ? 'flex' : 'none';
+  if(!showPar){ deudaPar='all'; return; }
+
+  // Build pair list from current filtered data (without par filter)
+  const saved=deudaPar;
+  deudaPar='all';
+  let arr=S.deudas||[];
+  if(deudaFiltro==='apru'){
+    arr=arr.filter(d=>{const ct1=getCajaType(d.desde),ct2=getCajaType(d.hacia);return(ct1==='a'&&ct2==='pru')||(ct1==='pru'&&ct2==='a');});
+  } else if(deudaFiltro==='entre') arr=arr.filter(d=>d.hoja==='entre');
+  else if(deudaFiltro==='pru')     arr=arr.filter(d=>d.hoja==='pru');
+  else if(deudaFiltro==='interna') arr=arr.filter(d=>d.hoja==='interna');
+  if(deudaProj!=='all'){
+    const alias=deudaProj==='IC'?'ICON':deudaProj==='CUZ'?'CUS':deudaProj==='DOMI'?'DOM':deudaProj;
+    arr=arr.filter(d=>{const dsd=parseEmpresa(d.desde).proj,hac=parseEmpresa(d.hacia).proj;return dsd===alias||hac===alias;});
+  }
+
+  // Get unique pairs
+  const pairs=new Map();
+  arr.forEach(d=>{
+    const key=`${d.desde}|||${d.hacia}`;
+    if(!pairs.has(key)) pairs.set(key,`${d.desde} → ${d.hacia}`);
+  });
+
+  sel.innerHTML='<option value="all">Todos los pares</option>'+
+    [...pairs.entries()].map(([k,v])=>`<option value="${k}">${v}</option>`).join('');
+  sel.value=pairs.has(saved)?saved:'all';
+  deudaPar=sel.value;
 }
 function setDeudaTipo(t){
   deudaTipo=t;
@@ -1560,7 +1636,7 @@ function showTab(name){
     document.querySelectorAll('.tabs .tab')[i].classList.toggle('active',t===name);
   });
   if(name==='evolutivo'){renderEvoToggles();renderEvolutivo();}
-  if(name==='deuda')renderDeuda();
+  if(name==='deuda'){populateParSelector();renderDeuda();}
   if(name==='editar'&&editUnlocked)renderEditForm();
 }
 function renderAll(){
